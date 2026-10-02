@@ -41,6 +41,10 @@ describe('projectTasks', () => {
     ])
   })
 
+  it('drops surrounding whitespace from the task Markdown', () => {
+    expect(projectTasks('+ [ ] padded   \n').map((task) => task.markdown)).toEqual(['padded'])
+  })
+
   it('treats an uppercase [X] marker as checked', () => {
     expect(projectTasks('+ [X] done\n')[0]).toMatchObject({ markdown: 'done', checked: true })
   })

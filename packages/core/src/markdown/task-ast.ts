@@ -42,10 +42,14 @@ export function isRoundTask(node: MarkdownNode): node is MarkdownListItem {
   return node.type === 'listItem' && node.kind === 'task' && node.marker === '+'
 }
 
-/** The Markdown of an item's first paragraph: a task's text, or a parent's breadcrumb label. */
+/**
+ * The Markdown of an item's first paragraph: a task's text, or a parent's
+ * breadcrumb label. Surrounding whitespace is not content and is dropped, so
+ * a trailing-space line projects the same as a clean one.
+ */
 export function getFirstParagraphMarkdown(item: MarkdownListItem): string {
   const first = item.children[0]
-  return first?.type === 'paragraph' ? first.value : ''
+  return first?.type === 'paragraph' ? first.value.trim() : ''
 }
 
 export interface TaskEntry {
