@@ -101,7 +101,7 @@ function matchesFirstLine(body: string, markerOffset: number, locator: TaskLocat
   }
   const newline = body.indexOf('\n', contentStart)
   const lineEnd = newline === -1 ? body.length : newline
-  const firstLine = body.slice(contentStart, lineEnd).replace(/\r$/, '')
+  const firstLine = body.slice(contentStart, lineEnd).replace(/[ \t]*\r?$/, '')
   const [expected = ''] = locator.markdown.split('\n')
   return checked === locator.checked && firstLine === expected
 }
