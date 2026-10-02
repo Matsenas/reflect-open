@@ -67,6 +67,7 @@ function serializeByPath<T>(path: string, op: () => Promise<T>): Promise<T> {
 
 interface WriteTaskEditsOptions {
   /** Treat a missing note as empty: the first task creates it (today's daily). */
+  // FIXME: should we rename "createIfMissing" to "createNoteIfMissing"?
   readonly createIfMissing?: boolean
 }
 
