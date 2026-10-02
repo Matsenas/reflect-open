@@ -70,6 +70,7 @@ export {
   toggleTaskMarker,
   TaskStaleError,
   renderInlineText,
+  compareTaskPaths,
   decodeTaskPath,
   encodeTaskPath,
   isSameTaskPath,

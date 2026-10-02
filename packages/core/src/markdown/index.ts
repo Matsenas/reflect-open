@@ -83,7 +83,7 @@ export {
   type AsyncWikiLookup,
 } from './resolve.ts'
 export { renderInlineText } from './inline-text.ts'
-export { decodeTaskPath, encodeTaskPath, isSameTaskPath } from './task-path.ts'
+export { compareTaskPaths, decodeTaskPath, encodeTaskPath, isSameTaskPath } from './task-path.ts'
 export {
   applyTaskEdits,
   getFirstParagraphMarkdown,

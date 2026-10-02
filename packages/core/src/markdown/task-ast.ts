@@ -52,8 +52,6 @@ export interface TaskEntry {
   node: MarkdownListItem
   parent: BlockParent
   astPath: MarkdownAstPath
-  /** Document order among the body's round tasks. */
-  order: number
   /** First-paragraph Markdown of the ancestor list items, outermost first. */
   breadcrumbs: readonly string[]
 }
@@ -69,7 +67,7 @@ export function getRoundTasks(document: MarkdownDocument): TaskEntry[] {
     const label = node.type === 'listItem' ? getFirstParagraphMarkdown(node) : ''
     breadcrumbsOf.set(node, label === '' ? inherited : [...inherited, label])
     if (isRoundTask(node) && isBlockParent(parent)) {
-      entries.push({ node, parent, astPath: path, order: entries.length, breadcrumbs: inherited })
+      entries.push({ node, parent, astPath: path, breadcrumbs: inherited })
     }
   }
   return entries
@@ -88,7 +86,6 @@ export function getTaskDueDate(markdown: string): string | null {
 
 export interface ProjectedTask {
   astPath: MarkdownAstPath
-  order: number
   /** The task's first paragraph, marker excluded. */
   markdown: string
   /** Ancestor list items' first paragraphs, outermost first. */
@@ -106,7 +103,6 @@ function toProjectedTask(entry: TaskEntry): ProjectedTask {
   const markdown = getFirstParagraphMarkdown(entry.node)
   return {
     astPath: entry.astPath,
-    order: entry.order,
     markdown,
     breadcrumbs: entry.breadcrumbs,
     checked: entry.node.checked,
@@ -138,7 +134,6 @@ export type TaskEdit =
 
 export interface TaskSnapshot {
   astPath: MarkdownAstPath
-  order: number
   markdown: string
   checked: boolean
 }
@@ -267,7 +262,6 @@ export function applyTaskEdits(source: string, edits: readonly TaskEdit[]): Task
 function toTaskSnapshot(entry: TaskEntry): TaskSnapshot {
   return {
     astPath: entry.astPath,
-    order: entry.order,
     markdown: getFirstParagraphMarkdown(entry.node),
     checked: entry.node.checked,
   }
