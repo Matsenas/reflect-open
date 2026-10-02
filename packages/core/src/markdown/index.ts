@@ -82,3 +82,21 @@ export {
   type WikiLookup,
   type AsyncWikiLookup,
 } from './resolve.ts'
+export { renderInlineText } from './inline-text.ts'
+export { decodeTaskPath, encodeTaskPath, isSameTaskPath } from './task-path.ts'
+export {
+  applyTaskEdits,
+  getFirstParagraphMarkdown,
+  getRoundTasks,
+  getTaskDueDate,
+  isRoundTask,
+  NoteNotSerializableError,
+  projectTasks,
+  type InsertPosition,
+  type ProjectedTask,
+  type TaskEdit,
+  type TaskEditResult,
+  type TaskEntry,
+  type TaskLocator,
+  type TaskSnapshot,
+} from './task-ast.ts'

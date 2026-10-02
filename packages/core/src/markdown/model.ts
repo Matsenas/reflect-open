@@ -173,6 +173,9 @@ export interface AssetRef extends Span {
  * toggleTaskMarker}); `raw` is the staleness guard that lets the toggle relocate
  * the marker — or refuse — when the file drifted under it. {@link ParsedTask}
  * extends this with the rendered text and checked state.
+ *
+ * @deprecated Tasks are moving to AST addresses (`task-ast.ts`); this
+ * offset-based shape goes away with the `tasks` projection that stores it.
  */
 export interface TaskMarker {
   /**
@@ -192,6 +195,9 @@ export interface TaskMarker {
  * A Reflect task item (`+ [ ] text` / `+ [x] text`) — the unit the Tasks view
  * (Plan 18) projects across the graph. Square checklist checkboxes stay in the
  * note only and are intentionally excluded from the aggregate Tasks view.
+ *
+ * @deprecated Replaced by `ProjectedTask` in `task-ast.ts` once the `tasks`
+ * projection is keyed by AST path. Do not add new readers.
  */
 export interface ParsedTask extends TaskMarker {
   /** Inline text of the item's marker line, markdown stripped, for display + search. */
