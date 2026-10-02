@@ -123,11 +123,12 @@ export function useTaskActions(): TaskActions {
     tasks: readonly OpenTask[],
     write: (task: OpenTask) => Promise<TaskEditResult>,
   ): Promise<void> {
-    let pending = tasks
+    let pending: readonly OpenTask[] = tasks
     for (let task = pending[0]; task !== undefined; task = pending[0]) {
       const result = await write(task)
       relocate(task.notePath, result.moved)
-      pending = withRelocatedTasks(pending.slice(1), task.notePath, result.moved)
+      const rest: readonly OpenTask[] = pending.slice(1)
+      pending = withRelocatedTasks(rest, task.notePath, result.moved)
     }
   }
 
