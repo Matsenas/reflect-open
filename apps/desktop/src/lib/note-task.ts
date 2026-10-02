@@ -103,7 +103,7 @@ export function writeTaskEdits(
 ): Promise<TaskEditResult> {
   // Serialize per note: a concurrent change to the same note must not read the
   // pre-write source and clobber this one.
-  return serializeByPath(notePath, async () => {
+  return serializeByPath(notePath, async (): Promise<TaskEditResult> => {
     const owner = openSession(notePath)
     if (owner !== null) {
       let result: TaskEditResult | undefined
