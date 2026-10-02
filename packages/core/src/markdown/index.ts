@@ -86,6 +86,7 @@ export { renderInlineText } from './inline-text.ts'
 export { compareTaskPaths, decodeTaskPath, encodeTaskPath, isSameTaskPath } from './task-path.ts'
 export {
   applyTaskEdits,
+  findTaskMove,
   getFirstParagraphMarkdown,
   getRoundTasks,
   getTaskDueDate,
@@ -98,6 +99,7 @@ export {
   type TaskEditInsert,
   type TaskEditItem,
   type TaskEditResult,
+  type TaskMove,
   type TaskEntry,
   type TaskLocator,
   type TaskSnapshot,

@@ -2,15 +2,18 @@ import { parseMarkdownAst } from '@meowdown/markdown'
 import { describe, expect, it } from 'vitest'
 import { TaskStaleError } from './edit.ts'
 import { splitFrontmatter } from './frontmatter.ts'
-import { encodeTaskPath } from './task-path.ts'
 import {
   applyTaskEdits,
+  findTaskMove,
   getRoundTasks,
   getTaskDueDate,
   NoteNotSerializableError,
   projectTasks,
+  type TaskEditResult,
   type TaskLocator,
+  type TaskSnapshot,
 } from './task-ast.ts'
+import { isSameTaskPath } from './task-path.ts'
 
 /** The locator of the `index`th task in `source`, as the index would store it. */
 function locate(source: string, index = 0): TaskLocator {
@@ -19,6 +22,15 @@ function locate(source: string, index = 0): TaskLocator {
     throw new Error(`no task #${index} in ${JSON.stringify(source)}`)
   }
   return { astPath: task.astPath, markdown: task.markdown, checked: task.checked }
+}
+
+/** Where the write left the task that was at `astPath` before it. */
+function movedFrom(result: TaskEditResult, astPath: readonly number[]): TaskSnapshot | null {
+  const move = result.moved.find((candidate) => isSameTaskPath(candidate.from.astPath, astPath))
+  if (move === undefined) {
+    throw new Error(`no task was at ${JSON.stringify(astPath)}`)
+  }
+  return move.to
 }
 
 describe('projectTasks', () => {
@@ -73,7 +85,7 @@ describe('projectTasks', () => {
 
   it('ignores checkboxes inside fenced code', () => {
     expect(
-      projectTasks('+ [ ] real\n\n```\n+ [ ] not a task\n```\n').map((t) => t.markdown),
+      projectTasks('+ [ ] real\n\n```\n+ [ ] not a task\n```\n').map((task) => task.markdown),
     ).toEqual(['real'])
   })
 
@@ -208,11 +220,11 @@ describe('applyTaskEdits: toggle', () => {
   it('maps every task to its unchanged place', () => {
     const source = '+ [ ] a\n+ [ ] b\n'
     const result = applyTaskEdits(source, [{ kind: 'toggle', task: locate(source, 0) }])
-    expect(result.moved.get(encodeTaskPath([0]))).toMatchObject({
+    expect(movedFrom(result, [0])).toMatchObject({
       astPath: [0],
       checked: true,
     })
-    expect(result.moved.get(encodeTaskPath([1]))).toMatchObject({ astPath: [1] })
+    expect(movedFrom(result, [1])).toMatchObject({ astPath: [1] })
     expect(result.tasks.map((task) => task.markdown)).toEqual(['a', 'b'])
   })
 })
@@ -267,8 +279,8 @@ describe('applyTaskEdits: remove', () => {
     const source = '+ [ ] a\n+ [ ] b\n+ [ ] c\n'
     const result = applyTaskEdits(source, [{ kind: 'remove', task: locate(source, 1) }])
     expect(result.source).toBe('+ [ ] a\n+ [ ] c\n')
-    expect(result.moved.get(encodeTaskPath([1]))).toBeNull()
-    expect(result.moved.get(encodeTaskPath([2]))).toMatchObject({ astPath: [1] })
+    expect(movedFrom(result, [1])).toBeNull()
+    expect(movedFrom(result, [2])).toMatchObject({ astPath: [1] })
   })
 
   it('empties a note whose only block was the task', () => {
@@ -280,7 +292,7 @@ describe('applyTaskEdits: remove', () => {
     const source = '+ [ ] parent\n  more\n  + [ ] child\n+ [ ] next\n'
     const result = applyTaskEdits(source, [{ kind: 'remove', task: locate(source, 0) }])
     expect(result.source).toBe('+ [ ] child\n+ [ ] next\n')
-    expect(result.moved.get(encodeTaskPath([0, 1]))).toMatchObject({ astPath: [0] })
+    expect(movedFrom(result, [0, 1])).toMatchObject({ astPath: [0] })
   })
 
   it('leaves surrounding prose intact', () => {
@@ -296,8 +308,8 @@ describe('applyTaskEdits: toBullet', () => {
     const source = '+ [ ] a\n+ [x] b [[Note]]\n+ [ ] c\n'
     const result = applyTaskEdits(source, [{ kind: 'toBullet', task: locate(source, 1) }])
     expect(result.source).toBe('+ [ ] a\n+ b [[Note]]\n+ [ ] c\n')
-    expect(result.moved.get(encodeTaskPath([1]))).toBeNull()
-    expect(result.moved.get(encodeTaskPath([2]))).toMatchObject({ astPath: [2] })
+    expect(movedFrom(result, [1])).toBeNull()
+    expect(movedFrom(result, [2])).toMatchObject({ astPath: [2] })
   })
 
   it('collapses an empty task to a bare bullet', () => {
@@ -312,7 +324,9 @@ describe('applyTaskEdits: insert', () => {
   it('starts an empty note with a single empty task', () => {
     const result = applyTaskEdits('', [empty])
     expect(result.source).toBe('+ [ ] \n')
-    expect(result.inserted).toEqual([{ astPath: [0], markdown: '', checked: false }])
+    expect(result.inserted).toEqual([
+      { astPath: [0], markdown: '', breadcrumbs: [], checked: false },
+    ])
   })
 
   it('continues a trailing task list and follows prose after a blank line', () => {
@@ -350,8 +364,8 @@ describe('applyTaskEdits: insert', () => {
       { kind: 'insert', at: { kind: 'afterTask', task: locate(source, 0) }, markdown: 'bread' },
     ])
     expect(result.source).toBe('- Shopping\n  + [ ] milk\n  + [ ] bread\n  + [ ] eggs\n')
-    expect(result.moved.get(encodeTaskPath([0, 1]))).toMatchObject({ astPath: [0, 1] })
-    expect(result.moved.get(encodeTaskPath([0, 2]))).toMatchObject({ astPath: [0, 3] })
+    expect(movedFrom(result, [0, 1])).toMatchObject({ astPath: [0, 1] })
+    expect(movedFrom(result, [0, 2])).toMatchObject({ astPath: [0, 3] })
     expect(result.inserted[0]).toMatchObject({ astPath: [0, 2], markdown: 'bread' })
   })
 
@@ -380,9 +394,14 @@ describe('applyTaskEdits: batches', () => {
       { kind: 'insert', at: { kind: 'contextEnd', task: eggs }, markdown: '' },
     ])
     expect(result.source).toBe('- Shopping\n  + [ ] milk\n  + [ ] \n- Other\n')
-    expect(result.moved.get(encodeTaskPath([0, 2]))).toBeNull()
-    expect(result.moved.get(encodeTaskPath([0, 1]))).toMatchObject({ astPath: [0, 1] })
-    expect(result.inserted[0]).toMatchObject({ astPath: [0, 2] })
+    expect(movedFrom(result, [0, 2])).toBeNull()
+    expect(movedFrom(result, [0, 1])).toMatchObject({ astPath: [0, 1] })
+    expect(result.inserted[0]).toEqual({
+      astPath: [0, 2],
+      markdown: '',
+      breadcrumbs: ['Shopping'],
+      checked: false,
+    })
   })
 
   it('edits a task and toggles it in one write, addressing it as it was', () => {
@@ -393,10 +412,44 @@ describe('applyTaskEdits: batches', () => {
       { kind: 'toggle', task },
     ])
     expect(result.source).toBe('+ [x] final\n')
-    expect(result.moved.get(encodeTaskPath([0]))).toMatchObject({
+    expect(movedFrom(result, [0])).toMatchObject({
       markdown: 'final',
       checked: true,
     })
+  })
+
+  it('removes a parent task and then its lifted child in one write', () => {
+    const source = '+ [ ] parent\n  + [ ] child\n+ [ ] after\n'
+    const result = applyTaskEdits(source, [
+      { kind: 'remove', task: locate(source, 0) },
+      { kind: 'remove', task: locate(source, 1) },
+    ])
+    expect(result.source).toBe('+ [ ] after\n')
+    expect(result.moved.map((move) => move.to)).toEqual([
+      null,
+      null,
+      { astPath: [0], markdown: 'after', breadcrumbs: [], checked: false },
+    ])
+  })
+
+  it('inserts after a child whose parent was removed earlier in the batch', () => {
+    const source = '+ [ ] parent\n  + [ ] child\n+ [ ] after\n'
+    const result = applyTaskEdits(source, [
+      { kind: 'remove', task: locate(source, 0) },
+      { kind: 'insert', at: { kind: 'afterTask', task: locate(source, 1) }, markdown: 'new' },
+    ])
+    expect(result.source).toBe('+ [ ] child\n+ [ ] new\n+ [ ] after\n')
+    expect(result.inserted[0]).toMatchObject({ astPath: [1], breadcrumbs: [] })
+  })
+
+  it('refuses a context insert into a parent removed earlier in the batch', () => {
+    const source = '+ [ ] parent\n  + [ ] child\n'
+    expect(() =>
+      applyTaskEdits(source, [
+        { kind: 'remove', task: locate(source, 0) },
+        { kind: 'insert', at: { kind: 'contextEnd', task: locate(source, 1) }, markdown: '' },
+      ]),
+    ).toThrow(TaskStaleError)
   })
 
   it('refuses a later edit on a task removed earlier in the batch', () => {
@@ -414,6 +467,36 @@ describe('applyTaskEdits: batches', () => {
         { kind: 'remove', task },
       ]),
     ).toThrow(TaskStaleError)
+  })
+})
+
+describe('findTaskMove', () => {
+  const source = 'Intro\n\n+ [ ] a\n+ [ ] b\n'
+  const { moved } = applyTaskEdits(source, [{ kind: 'toggle', task: locate(source, 0) }])
+
+  it('follows a locator by its path while the content still matches', () => {
+    expect(findTaskMove(moved, locate(source, 0))?.to).toMatchObject({
+      astPath: [1],
+      checked: true,
+    })
+  })
+
+  it('follows a stale locator by its content, not by whatever sits at its path', () => {
+    // Indexed before the intro paragraph was added: `b` was at [1], where `a` is now.
+    expect(findTaskMove(moved, { astPath: [1], markdown: 'b', checked: false })?.to).toMatchObject({
+      astPath: [2],
+      markdown: 'b',
+    })
+  })
+
+  it('returns undefined for a locator that names no task or several', () => {
+    expect(findTaskMove(moved, { astPath: [1], markdown: 'c', checked: false })).toBeUndefined()
+    const twins = '+ [ ] same\n+ [ ] same\n'
+    const result = applyTaskEdits(twins, [{ kind: 'toggle', task: locate(twins, 1) }])
+    expect(findTaskMove(result.moved, { astPath: [5], markdown: 'same', checked: false })).toBe(
+      undefined,
+    )
+    expect(findTaskMove(result.moved, locate(twins, 1))?.to).toMatchObject({ checked: true })
   })
 })
 

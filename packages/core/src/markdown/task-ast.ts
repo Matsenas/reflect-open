@@ -17,7 +17,7 @@ import { splitFrontmatter } from './frontmatter.ts'
 import { documentLineEnding } from './line-endings.ts'
 import { normalizeWikiTarget } from './resolve.ts'
 import { scanInlineWikiLinks } from './scan.ts'
-import { encodeTaskPath, isSameTaskPath } from './task-path.ts'
+import { isSameTaskPath } from './task-path.ts'
 
 /** The note cannot be rewritten through the AST without changing its content. */
 export class NoteNotSerializableError extends Error {
@@ -53,12 +53,9 @@ export function getFirstParagraphMarkdown(item: MarkdownListItem): string {
   return first?.type === 'paragraph' ? first.value.trim() : ''
 }
 
-export interface TaskEntry {
+export interface TaskEntry extends TaskSnapshot {
   node: MarkdownListItem
   parent: BlockParent
-  astPath: MarkdownAstPath
-  /** First-paragraph Markdown of the ancestor list items, outermost first. */
-  breadcrumbs: readonly string[]
 }
 
 export function getRoundTasks(document: MarkdownDocument): TaskEntry[] {
@@ -72,7 +69,14 @@ export function getRoundTasks(document: MarkdownDocument): TaskEntry[] {
     const label = node.type === 'listItem' ? getFirstParagraphMarkdown(node) : ''
     breadcrumbsOf.set(node, label === '' ? inherited : [...inherited, label])
     if (isRoundTask(node) && isBlockParent(parent)) {
-      entries.push({ node, parent, astPath: path, breadcrumbs: inherited })
+      entries.push({
+        node,
+        parent,
+        astPath: path,
+        markdown: label,
+        breadcrumbs: inherited,
+        checked: node.checked,
+      })
     }
   }
   return entries
@@ -105,14 +109,7 @@ export function projectTasks(body: string): ProjectedTask[] {
 }
 
 function toProjectedTask(entry: TaskEntry): ProjectedTask {
-  const markdown = getFirstParagraphMarkdown(entry.node)
-  return {
-    astPath: entry.astPath,
-    markdown,
-    breadcrumbs: entry.breadcrumbs,
-    checked: entry.node.checked,
-    dueDate: getTaskDueDate(markdown),
-  }
+  return { ...toTaskSnapshot(entry), dueDate: getTaskDueDate(entry.markdown) }
 }
 
 /** Where a task was last seen; `markdown` and `checked` are the staleness guard. */
@@ -145,35 +142,43 @@ export interface TaskEditInsert {
 
 export type TaskEdit = TaskEditItem | TaskEditInsert
 
-export interface TaskSnapshot {
-  astPath: MarkdownAstPath
-  markdown: string
-  checked: boolean
+/** A round task as it stands in a note body. */
+export interface TaskSnapshot extends TaskLocator {
+  /** Ancestor list items' first paragraphs, outermost first. */
+  breadcrumbs: readonly string[]
+}
+
+/** One pre-edit round task and where the edit left it: null once removed or no longer a task. */
+export interface TaskMove {
+  from: TaskSnapshot
+  to: TaskSnapshot | null
 }
 
 export interface TaskEditResult {
   source: string
-  /**
-   * Every pre-edit round task by `encodeTaskPath(oldPath)`: where it is now, or
-   * null once removed or no longer a task.
-   */
-  moved: ReadonlyMap<string, TaskSnapshot | null>
+  /** Every pre-edit round task, in document order. */
+  moved: readonly TaskMove[]
   /** The inserted tasks, in edit order. */
   inserted: readonly TaskSnapshot[]
   /** The round tasks of the new source, in document order. */
   tasks: readonly TaskSnapshot[]
 }
 
-interface ItemTarget {
-  node: MarkdownListItem
-  parent: BlockParent
+/**
+ * Where a write left the task a locator names, or undefined when the locator
+ * names none or several. Resolved like the edit itself, so a locator from a
+ * stale index follows its task by content instead of claiming whatever task
+ * now sits at its path.
+ */
+export function findTaskMove(moves: readonly TaskMove[], task: TaskLocator): TaskMove | undefined {
+  const matches = matchTaskLocator(moves, (move) => move.from, task)
+  return matches.length === 1 ? matches[0] : undefined
 }
 
-interface SlotTarget {
-  parent: BlockParent
-  anchor: MarkdownBlock | null
-  place: 'after' | 'end'
-}
+/** A slot for a new item: right after a block, or at the end of a container. */
+type SlotTarget =
+  | { kind: 'after'; anchor: MarkdownBlock }
+  | { kind: 'end'; container: MarkdownDocument | MarkdownListItem }
 
 /**
  * Apply `edits` to a note and serialize its body once. Every locator describes
@@ -197,11 +202,11 @@ export function applyTaskEdits(source: string, edits: readonly TaskEdit[]): Task
       const slot = resolveInsertPosition(document, before, edit.at)
       const markdown = requireParagraphMarkdown(edit.markdown)
       return () => {
-        created.push(insertTaskItem(slot, markdown))
+        created.push(insertTaskItem(document, slot, markdown))
       }
     }
-    const target = locateTask(document, before, edit.task)
-    return () => applyItemEdit(target, edit)
+    const { node } = locateTask(before, edit.task)
+    return () => applyItemEdit(document, node, edit)
   })
   for (const mutate of mutations) {
     mutate()
@@ -211,11 +216,10 @@ export function applyTaskEdits(source: string, edits: readonly TaskEdit[]): Task
   const snapshotOf = new Map<MarkdownNode, TaskSnapshot>(
     after.map((entry) => [entry.node, toTaskSnapshot(entry)] as const),
   )
-  const moved = new Map<string, TaskSnapshot | null>(
-    before.map(
-      (entry) => [encodeTaskPath(entry.astPath), snapshotOf.get(entry.node) ?? null] as const,
-    ),
-  )
+  const moved = before.map((entry): TaskMove => ({
+    from: toTaskSnapshot(entry),
+    to: snapshotOf.get(entry.node) ?? null,
+  }))
   const inserted = created.map((item) => {
     const snapshot = snapshotOf.get(item)
     if (snapshot === undefined) {
@@ -235,12 +239,8 @@ export function applyTaskEdits(source: string, edits: readonly TaskEdit[]): Task
   }
 }
 
-function toTaskSnapshot(entry: TaskEntry): TaskSnapshot {
-  return {
-    astPath: entry.astPath,
-    markdown: getFirstParagraphMarkdown(entry.node),
-    checked: entry.node.checked,
-  }
+function toTaskSnapshot({ astPath, markdown, breadcrumbs, checked }: TaskEntry): TaskSnapshot {
+  return { astPath, markdown, breadcrumbs, checked }
 }
 
 function assertSerializable(document: MarkdownDocument): void {
@@ -255,35 +255,38 @@ function assertSerializable(document: MarkdownDocument): void {
   }
 }
 
-function matchesLocator(item: MarkdownListItem, locator: TaskLocator): boolean {
-  return item.checked === locator.checked && getFirstParagraphMarkdown(item) === locator.markdown
+function hasSameContent(entry: TaskLocator, locator: TaskLocator): boolean {
+  return entry.checked === locator.checked && entry.markdown === locator.markdown
 }
 
-function locateTask(
-  document: MarkdownDocument,
-  before: readonly TaskEntry[],
+/**
+ * The entries a locator names: the one at its path while its content still
+ * matches, else every entry with that content (the task moved, or is gone).
+ */
+function matchTaskLocator<T>(
+  entries: readonly T[],
+  locatorOf: (entry: T) => TaskLocator,
   locator: TaskLocator,
-): ItemTarget {
-  const found = resolveMarkdownAstPath(document, locator.astPath)
-  if (
-    found !== undefined &&
-    found.parent !== undefined &&
-    isBlockParent(found.parent) &&
-    isRoundTask(found.node) &&
-    matchesLocator(found.node, locator)
-  ) {
-    return { node: found.node, parent: found.parent }
+): T[] {
+  const atPath = entries.find((entry) => {
+    const candidate = locatorOf(entry)
+    return isSameTaskPath(candidate.astPath, locator.astPath) && hasSameContent(candidate, locator)
+  })
+  if (atPath !== undefined) {
+    return [atPath]
   }
-  const candidates = before.filter((entry) => matchesLocator(entry.node, locator))
-  const candidate = candidates[0]
-  if (candidates.length === 1 && candidate !== undefined) {
-    return { node: candidate.node, parent: candidate.parent }
+  return entries.filter((entry) => hasSameContent(locatorOf(entry), locator))
+}
+
+function locateTask(before: readonly TaskEntry[], locator: TaskLocator): TaskEntry {
+  const matches = matchTaskLocator(before, (entry) => entry, locator)
+  const [match] = matches
+  if (matches.length === 1 && match !== undefined) {
+    return match
   }
   const text = JSON.stringify(locator.markdown)
   throw new TaskStaleError(
-    candidates.length === 0
-      ? `task is no longer in the note: ${text}`
-      : `task is ambiguous: ${text}`,
+    matches.length === 0 ? `task is no longer in the note: ${text}` : `task is ambiguous: ${text}`,
   )
 }
 
@@ -294,18 +297,18 @@ function resolveInsertPosition(
 ): SlotTarget {
   switch (at.kind) {
     case 'documentEnd': {
-      return { parent: document, anchor: null, place: 'end' }
+      return { kind: 'end', container: document }
     }
     case 'contextEnd': {
-      const { parent } = locateTask(document, before, at.task)
+      const { parent } = locateTask(before, at.task)
       if (parent.type !== 'listItem') {
         throw new TaskStaleError('task no longer has a parent list context')
       }
-      return { parent, anchor: null, place: 'end' }
+      return { kind: 'end', container: parent }
     }
     case 'afterTask': {
-      const { node, parent } = locateTask(document, before, at.task)
-      return { parent, anchor: node, place: 'after' }
+      const { node } = locateTask(before, at.task)
+      return { kind: 'after', anchor: node }
     }
     case 'afterBlock': {
       const found = resolveMarkdownAstPath(document, at.astPath)
@@ -317,22 +320,40 @@ function resolveInsertPosition(
       if (anchor === undefined) {
         throw new TaskStaleError('insert position is gone')
       }
-      return { parent: found.parent, anchor, place: 'after' }
+      return { kind: 'after', anchor }
     }
   }
 }
 
-/** Indexes are computed when the edit is applied, so earlier edits in the batch cannot stale them. */
-function insertTaskItem(slot: SlotTarget, markdown: string): MarkdownListItem {
-  const siblings = slot.parent.children
-  const index = slot.anchor === null ? siblings.length : requireIndex(siblings, slot.anchor) + 1
+/**
+ * Parents and indexes are looked up when the edit is applied, not when it was
+ * resolved: an earlier edit in the batch may have shifted the siblings or
+ * lifted the node out of a removed parent.
+ */
+function insertTaskItem(
+  document: MarkdownDocument,
+  slot: SlotTarget,
+  markdown: string,
+): MarkdownListItem {
   const item = createTaskItem(markdown)
-  siblings.splice(index, 0, item)
+  if (slot.kind === 'after') {
+    const { parent, index } = requireAttached(document, slot.anchor)
+    parent.children.splice(index + 1, 0, item)
+  } else {
+    if (slot.container.type === 'listItem') {
+      requireAttached(document, slot.container)
+    }
+    slot.container.children.push(item)
+  }
   return item
 }
 
-function applyItemEdit({ node, parent }: ItemTarget, edit: TaskEditItem): void {
-  const index = requireIndex(parent.children, node)
+function applyItemEdit(
+  document: MarkdownDocument,
+  node: MarkdownListItem,
+  edit: TaskEditItem,
+): void {
+  const { parent, index } = requireAttached(document, node)
   switch (edit.kind) {
     case 'toggle': {
       node.checked = !node.checked
@@ -359,12 +380,19 @@ function applyItemEdit({ node, parent }: ItemTarget, edit: TaskEditItem): void {
   }
 }
 
-function requireIndex(siblings: MarkdownBlock[], node: MarkdownBlock): number {
-  const index = siblings.indexOf(node)
-  if (index === -1) {
-    throw new TaskStaleError('the task was removed earlier in this batch')
+interface Attachment {
+  parent: BlockParent
+  index: number
+}
+
+/** Where `target` currently sits in the tree, or a stale error once an earlier edit detached it. */
+function requireAttached(document: MarkdownDocument, target: MarkdownBlock): Attachment {
+  for (const { node, parent } of walkMarkdownAst(document)) {
+    if (node === target && parent !== undefined && isBlockParent(parent)) {
+      return { parent, index: parent.children.indexOf(target) }
+    }
   }
-  return index
+  throw new TaskStaleError('the task was removed earlier in this batch')
 }
 
 function requireParagraphMarkdown(markdown: string): string {
@@ -404,13 +432,12 @@ function assertTasksSurvive(body: string, expected: readonly TaskEntry[]): void 
   const actual = getRoundTasks(parseMarkdownAst(body))
   const survives =
     actual.length === expected.length &&
-    actual.every((entry, i) => {
-      const wanted = expected[i]
+    actual.every((entry, position) => {
+      const wanted = expected[position]
       return (
         wanted !== undefined &&
         isSameTaskPath(entry.astPath, wanted.astPath) &&
-        entry.node.checked === wanted.node.checked &&
-        getFirstParagraphMarkdown(entry.node) === getFirstParagraphMarkdown(wanted.node)
+        hasSameContent(entry, wanted)
       )
     })
   if (!survives) {
