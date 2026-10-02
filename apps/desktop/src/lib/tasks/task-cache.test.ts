@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { TaskSnapshot } from '@reflect/core'
 import { makeOpenTask as task } from './open-task-fixture.ts'
 import {
   asCompleted,
@@ -12,6 +13,15 @@ import {
 const a = task({ astPath: [1], text: 'a' })
 const b = task({ astPath: [2], text: 'b' })
 const c = task({ astPath: [3], text: 'c' })
+
+function snapshot(
+  astPath: number[],
+  markdown: string,
+  checked = false,
+  breadcrumbs: string[] = [],
+): TaskSnapshot {
+  return { astPath, markdown, breadcrumbs, checked }
+}
 
 describe('withoutTasks', () => {
   it('drops every matching row and keeps the rest', () => {
@@ -30,36 +40,28 @@ describe('withRelocatedTasks', () => {
     const unrelated = task({ notePath: 'b.md', astPath: [0, 2], markdown: 'other' })
 
     expect(
-      withRelocatedTasks(
-        [moved, removed, unrelated],
-        'a.md',
-        new Map([
-          ['[0,2]', { astPath: [0, 3], markdown: 'moved', checked: false }],
-          ['[0,4]', null],
-        ]),
-      ),
+      withRelocatedTasks([moved, removed, unrelated], 'a.md', [
+        { from: snapshot([0, 2], 'moved'), to: snapshot([0, 3], 'moved') },
+        { from: snapshot([0, 4], 'removed'), to: null },
+      ]),
     ).toEqual([{ ...moved, astPath: [0, 3] }, unrelated])
   })
 
   it('returns the same list when every matched task is unchanged', () => {
     const rows = [task({ notePath: 'a.md', astPath: [2], markdown: 'same' })]
     expect(
-      withRelocatedTasks(
-        rows,
-        'a.md',
-        new Map([['[2]', { astPath: [2], markdown: 'same', checked: false }]]),
-      ),
+      withRelocatedTasks(rows, 'a.md', [
+        { from: snapshot([2], 'same'), to: snapshot([2], 'same') },
+      ]),
     ).toBe(rows)
   })
 
   it('refreshes text and due date when the persisted Markdown changed', () => {
     const rows = [task({ notePath: 'a.md', astPath: [2], markdown: 'old' })]
     expect(
-      withRelocatedTasks(
-        rows,
-        'a.md',
-        new Map([['[2]', { astPath: [2], markdown: 'edited [[2026-07-01]]', checked: true }]]),
-      ),
+      withRelocatedTasks(rows, 'a.md', [
+        { from: snapshot([2], 'old'), to: snapshot([2], 'edited [[2026-07-01]]', true) },
+      ]),
     ).toEqual([
       {
         ...rows[0],
@@ -71,11 +73,41 @@ describe('withRelocatedTasks', () => {
     ])
   })
 
+  it('follows a row whose indexed path is stale by its content', () => {
+    // Indexed before a paragraph was added above: `a` is now at [1], where `b` was.
+    const rows = [
+      task({ notePath: 'a.md', astPath: [0], markdown: 'a' }),
+      task({ notePath: 'a.md', astPath: [1], markdown: 'b' }),
+    ]
+    expect(
+      withRelocatedTasks(rows, 'a.md', [
+        { from: snapshot([1], 'a'), to: snapshot([1], 'a', true) },
+        { from: snapshot([2], 'b'), to: snapshot([2], 'b') },
+      ]),
+    ).toEqual([
+      { ...rows[0], astPath: [1], checked: true },
+      { ...rows[1], astPath: [2] },
+    ])
+  })
+
+  it('renders the breadcrumbs the write left the task under', () => {
+    const rows = [task({ notePath: 'a.md', astPath: [0, 1], markdown: 'x', breadcrumbs: ['Old'] })]
+    expect(
+      withRelocatedTasks(rows, 'a.md', [
+        { from: snapshot([0, 1], 'x', false, ['Old']), to: snapshot([1], 'x', false, ['[[New]]']) },
+      ]),
+    ).toEqual([{ ...rows[0], astPath: [1], breadcrumbs: ['New'] }])
+  })
+
   it('leaves rows the write did not know about alone', () => {
     const rows = [task({ notePath: 'a.md', astPath: [9], markdown: 'new' })]
-    expect(withRelocatedTasks(rows, 'a.md', new Map([['[0]', null]]))).toBe(rows)
-    expect(withRelocatedTasks(rows, 'a.md', new Map())).toBe(rows)
-    expect(withRelocatedTasks(undefined, 'a.md', new Map([['[9]', null]]))).toBeUndefined()
+    expect(withRelocatedTasks(rows, 'a.md', [{ from: snapshot([0], 'other'), to: null }])).toBe(
+      rows,
+    )
+    expect(withRelocatedTasks(rows, 'a.md', [])).toBe(rows)
+    expect(
+      withRelocatedTasks(undefined, 'a.md', [{ from: snapshot([9], 'new'), to: null }]),
+    ).toBeUndefined()
   })
 })
 

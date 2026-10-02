@@ -75,7 +75,7 @@ vi.mock('@/lib/note-task.ts', () => ({
 }))
 
 /** The result of a write that changed nothing the cache needs to re-address. */
-const WRITTEN = { source: '', moved: new Map(), inserted: [], tasks: [] }
+const WRITTEN = { source: '', moved: [], inserted: [], tasks: [] }
 
 // Stub the real inline editor with the callback surface the row
 // wires up, so selection + edit/delete/cancel routing is testable here; the
@@ -254,11 +254,11 @@ beforeEach(() => {
   editTask.mockReset()
   editTask.mockResolvedValue(WRITTEN)
   insertTask.mockReset()
-  insertTask.mockResolvedValue({ astPath: [0], markdown: '', checked: false })
+  insertTask.mockResolvedValue({ astPath: [0], markdown: '', breadcrumbs: [], checked: false })
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
-    created: { astPath: [0], markdown: '', checked: false },
-    moved: new Map(),
+    created: { astPath: [0], markdown: '', breadcrumbs: [], checked: false },
+    moved: [],
   })
   convertTaskToBullet.mockReset()
   convertTaskToBullet.mockResolvedValue(WRITTEN)
@@ -833,7 +833,7 @@ describe('TasksScreen', () => {
   })
 
   it('a note group’s "+ Add" button inserts into that note and opens the editor', async () => {
-    insertTask.mockResolvedValue({ astPath: [0], markdown: '', checked: false })
+    insertTask.mockResolvedValue({ astPath: [0], markdown: '', breadcrumbs: [], checked: false })
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/proj.md',
@@ -984,7 +984,7 @@ describe('TasksScreen', () => {
 
   it('Enter in the editor saves the row and opens the next task (continuous entry)', async () => {
     editTask.mockResolvedValue(WRITTEN)
-    insertTask.mockResolvedValue({ astPath: [7], markdown: '', checked: false })
+    insertTask.mockResolvedValue({ astPath: [7], markdown: '', breadcrumbs: [], checked: false })
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
@@ -1008,8 +1008,18 @@ describe('TasksScreen', () => {
 
   it('Enter in a grouped task keeps the new row in that breadcrumb context', async () => {
     continueTaskInContext.mockResolvedValue({
-      created: { astPath: [40], markdown: '', checked: false },
-      moved: new Map([['[40]', { astPath: [56], markdown: 'later', checked: false }]]),
+      created: {
+        astPath: [40],
+        markdown: '',
+        breadcrumbs: ['StartupToolbox', 'Reflections'],
+        checked: false,
+      },
+      moved: [
+        {
+          from: { astPath: [40], markdown: 'later', breadcrumbs: [], checked: false },
+          to: { astPath: [56], markdown: 'later', breadcrumbs: [], checked: false },
+        },
+      ],
     })
     getOpenTasks.mockResolvedValue([
       task({
@@ -1113,7 +1123,7 @@ describe('TasksScreen', () => {
 
   it('Enter on a cleared row deletes it instead of leaving a bare task (no ghost)', async () => {
     deleteTask.mockResolvedValue(WRITTEN)
-    insertTask.mockResolvedValue({ astPath: [0], markdown: '', checked: false })
+    insertTask.mockResolvedValue({ astPath: [0], markdown: '', breadcrumbs: [], checked: false })
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',

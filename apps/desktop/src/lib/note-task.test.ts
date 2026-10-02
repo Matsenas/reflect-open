@@ -1,4 +1,10 @@
-import { projectTasks, TaskStaleError, type TaskEditResult } from '@reflect/core'
+import {
+  isSameTaskPath,
+  projectTasks,
+  TaskStaleError,
+  type TaskEditResult,
+  type TaskSnapshot,
+} from '@reflect/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   continueTaskInContext,
@@ -31,6 +37,18 @@ function ref(source: string, index = 0, notePath = 'notes/a.md'): TaskRef {
     throw new Error(`no task #${index} in ${JSON.stringify(source)}`)
   }
   return { notePath, astPath: task.astPath, markdown: task.markdown, checked: task.checked }
+}
+
+/** Where the write left the task that was at `astPath` before it. */
+function movedFrom(
+  result: Pick<TaskEditResult, 'moved'>,
+  astPath: readonly number[],
+): TaskSnapshot | null {
+  const move = result.moved.find((candidate) => isSameTaskPath(candidate.from.astPath, astPath))
+  if (move === undefined) {
+    throw new Error(`no task was at ${JSON.stringify(astPath)}`)
+  }
+  return move.to
 }
 
 /** A session stub whose `commitSourceEdit` runs the transform over `source`. */
@@ -105,7 +123,7 @@ describe('toggleTask', () => {
 
     const result = await toggleTask(task, 7)
     expect(writeNote).toHaveBeenCalledWith('notes/a.md', '+ [x] do it\n', 7)
-    expect(result.moved.get('[0]')).toEqual({ astPath: [0], markdown: 'do it', checked: true })
+    expect(movedFrom(result, [0])).toMatchObject({ astPath: [0], markdown: 'do it', checked: true })
   })
 
   it('routes through the live session whenever the note is open — never disk', async () => {
@@ -179,8 +197,8 @@ describe('deleteTask', () => {
     const result = await deleteTask(task, 7)
     expect(writeNote).toHaveBeenCalledWith('notes/a.md', '+ [ ] keep\n', 7)
     // The removed task maps to null; the one below it moved up.
-    expect(result.moved.get('[0]')).toBeNull()
-    expect(result.moved.get('[1]')).toMatchObject({ astPath: [0], markdown: 'keep' })
+    expect(movedFrom(result, [0])).toBeNull()
+    expect(movedFrom(result, [1])).toMatchObject({ astPath: [0], markdown: 'keep' })
   })
 
   it('throws NoteBusyError when the session declines, never clobbering via disk', async () => {
@@ -198,7 +216,7 @@ describe('convertTaskToBullet', () => {
 
     const result = await convertTaskToBullet(task, 7)
     expect(writeNote).toHaveBeenCalledWith('notes/a.md', '+ do it\n+ [ ] keep\n', 7)
-    expect(result.moved.get('[0]')).toBeNull()
+    expect(movedFrom(result, [0])).toBeNull()
   })
 
   it('propagates TaskStaleError from the disk path when the index is stale', async () => {
@@ -218,7 +236,11 @@ describe('editAndToggleTask', () => {
     const result = await editAndToggleTask(task, 'done it', 7)
     expect(writeNote).toHaveBeenCalledTimes(1)
     expect(writeNote).toHaveBeenCalledWith('notes/a.md', '+ [x] done it\n', 7)
-    expect(result.moved.get('[0]')).toEqual({ astPath: [0], markdown: 'done it', checked: true })
+    expect(movedFrom(result, [0])).toMatchObject({
+      astPath: [0],
+      markdown: 'done it',
+      checked: true,
+    })
   })
 })
 
@@ -243,6 +265,7 @@ describe('insertTask', () => {
     await expect(insertTask('notes/a.md', 7)).resolves.toEqual({
       astPath: [0],
       markdown: '',
+      breadcrumbs: [],
       checked: false,
     })
     expect(writeNote).toHaveBeenCalledWith('notes/a.md', '+ [ ] \n', 7)
@@ -301,13 +324,18 @@ describe('continueTaskInContext', () => {
       '',
     ].join('\n')
     expect(writeNote).toHaveBeenCalledWith('notes/a.md', written, 7)
-    expect(result.created).toEqual({ astPath: [0, 1, 2], markdown: '', checked: false })
+    expect(result.created).toEqual({
+      astPath: [0, 1, 2],
+      markdown: '',
+      breadcrumbs: ['StartupToolbox', 'Reflections'],
+      checked: false,
+    })
     expect(projectTasks(written)[1]?.breadcrumbs).toEqual(['StartupToolbox', 'Reflections'])
-    expect(result.moved.get('[0,1,1]')).toMatchObject({
+    expect(movedFrom(result, [0, 1, 1])).toMatchObject({
       astPath: [0, 1, 1],
       markdown: 'edited first',
     })
-    expect(result.moved.get('[0,2,1]')).toMatchObject({ astPath: [0, 2, 1], markdown: 'third' })
+    expect(movedFrom(result, [0, 2, 1])).toMatchObject({ astPath: [0, 2, 1], markdown: 'third' })
   })
 
   it('replaces a cleared row with one empty task at the end of its context', async () => {
@@ -320,9 +348,14 @@ describe('continueTaskInContext', () => {
 
     const written = '+ Group\n  + [ ] peer\n  + [ ] \n'
     expect(writeNote).toHaveBeenCalledWith('notes/a.md', written, 7)
-    expect(result.created).toEqual({ astPath: [0, 2], markdown: '', checked: false })
-    expect(result.moved.get('[0,1]')).toBeNull()
-    expect(result.moved.get('[0,2]')).toMatchObject({ astPath: [0, 1], markdown: 'peer' })
+    expect(result.created).toEqual({
+      astPath: [0, 2],
+      markdown: '',
+      breadcrumbs: ['Group'],
+      checked: false,
+    })
+    expect(movedFrom(result, [0, 1])).toBeNull()
+    expect(movedFrom(result, [0, 2])).toMatchObject({ astPath: [0, 1], markdown: 'peer' })
   })
 
   it('relocates a stale anchor by its content when the note grew above it', async () => {
@@ -353,7 +386,7 @@ describe('continueTaskInContext', () => {
       '+ Group\r\n  + [ ] edited\r\n  + [ ] \r\n',
       7,
     )
-    expect(result.created).toEqual({ astPath: [0, 2], markdown: '', checked: false })
+    expect(result.created).toMatchObject({ astPath: [0, 2], markdown: '', breadcrumbs: ['Group'] })
   })
 
   it('refuses a root-level task, which has no context to continue', async () => {
@@ -372,7 +405,7 @@ describe('continueTaskInContext', () => {
     writeNote.mockResolvedValue(undefined)
 
     const result = await continueTaskInContext(ref(source), null, 7)
-    const moved: TaskEditResult['moved'] = result.moved
-    expect([...moved.keys()]).toEqual(['[0,1]'])
+    const first = { astPath: [0, 1], markdown: 'first', breadcrumbs: ['Group'], checked: false }
+    expect(result.moved).toEqual([{ from: first, to: first }])
   })
 })

@@ -91,7 +91,7 @@ export function relocateRecentlyCompleted(
   notePath: string,
   moved: TaskMoves,
 ): void {
-  if (root !== graphRoot || moved.size === 0) {
+  if (root !== graphRoot || moved.length === 0) {
     return
   }
   const next = withRelocatedTasks(tasks, notePath, moved)

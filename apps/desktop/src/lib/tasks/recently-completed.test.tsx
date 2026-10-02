@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { OpenTask } from '@reflect/core'
+import type { OpenTask, TaskSnapshot } from '@reflect/core'
 import { makeOpenTask as task } from './open-task-fixture.ts'
 import { getTaskKey } from './task-identity.ts'
 import {
@@ -14,6 +14,11 @@ import {
   resetRecentlyCompleted,
   useRecentlyCompleted,
 } from './recently-completed.ts'
+
+/** A struck task as the note holds it: checked, unless a case says otherwise. */
+function snapshot(astPath: number[], markdown: string, checked = true): TaskSnapshot {
+  return { astPath, markdown, breadcrumbs: [], checked }
+}
 
 beforeEach(() => resetRecentlyCompleted())
 afterEach(() => {
@@ -66,11 +71,9 @@ describe('recently-completed', () => {
     )
 
     act(() =>
-      relocateRecentlyCompleted(
-        '/g',
-        'a.md',
-        new Map([['[4]', { astPath: [5], markdown: 'done', checked: true }]]),
-      ),
+      relocateRecentlyCompleted('/g', 'a.md', [
+        { from: snapshot([4], 'done'), to: snapshot([5], 'done') },
+      ]),
     )
 
     expect(result.current.map((row) => getTaskKey(row))).toEqual(['a.md:[5]', 'b.md:[4]'])
@@ -81,7 +84,7 @@ describe('recently-completed', () => {
     const { result } = await renderHook(() => useRecentlyCompleted('/g', undefined))
     act(() => markRecentlyCompleted('/g', [task({ notePath: 'a.md', astPath: [1] })]))
 
-    act(() => relocateRecentlyCompleted('/g', 'a.md', new Map([['[1]', null]])))
+    act(() => relocateRecentlyCompleted('/g', 'a.md', [{ from: snapshot([1], 'do it'), to: null }]))
 
     expect(result.current).toEqual([])
   })
@@ -93,11 +96,9 @@ describe('recently-completed', () => {
     )
 
     act(() =>
-      relocateRecentlyCompleted(
-        '/g',
-        'a.md',
-        new Map([['[2]', { astPath: [2], markdown: 'edited [[2026-07-01]]', checked: true }]]),
-      ),
+      relocateRecentlyCompleted('/g', 'a.md', [
+        { from: snapshot([2], 'old'), to: snapshot([2], 'edited [[2026-07-01]]') },
+      ]),
     )
 
     expect(result.current[0]).toMatchObject({
@@ -107,18 +108,16 @@ describe('recently-completed', () => {
     })
   })
 
-  it('leaves a struck row alone when the write did not address it', async () => {
+  it('leaves a struck row alone when the write did not know its task', async () => {
     const { result } = await renderHook(() => useRecentlyCompleted('/g', undefined))
     act(() =>
       markRecentlyCompleted('/g', [task({ notePath: 'a.md', astPath: [1], markdown: 'dup' })]),
     )
 
     act(() =>
-      relocateRecentlyCompleted(
-        '/g',
-        'a.md',
-        new Map([['[2]', { astPath: [3], markdown: 'dup', checked: true }]]),
-      ),
+      relocateRecentlyCompleted('/g', 'a.md', [
+        { from: snapshot([2], 'other'), to: snapshot([3], 'other') },
+      ]),
     )
 
     expect(result.current.map((row) => getTaskKey(row))).toEqual(['a.md:[1]'])
@@ -196,7 +195,7 @@ describe('recently-completed', () => {
       open: [task({ notePath: 'a.md', astPath: [2], updatedAt: 200 })],
     })
     expect(result.current).toEqual([])
-    expect(hasRecentlyCompleted('/g', 'a.md:2')).toBe(false)
+    expect(hasRecentlyCompleted('/g', 'a.md:[2]')).toBe(false)
   })
 
   it('excludes a reopened task during the render that sees it, before the store prune', async () => {

@@ -63,6 +63,13 @@ describe('extractSnippetTasks', () => {
     })
   })
 
+  it('locates a task whose marker is followed by extra whitespace', () => {
+    const content = '- [[Target]] kickoff\n  + [ ]   prep agenda\n'
+    const [task] = tasksFor(content)
+    expect(task?.locator).toEqual({ astPath: [0, 1], markdown: 'prep agenda', checked: false })
+    expect(toggled(content, task)).toContain('+ [x]')
+  })
+
   it('anchors correctly through a dedented nested context', () => {
     const content = [
       '- top item',

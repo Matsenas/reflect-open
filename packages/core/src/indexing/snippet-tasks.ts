@@ -1,6 +1,6 @@
 import { LEZER_NODE_IDS, parseMarkdownAst, type SyntaxNode, type Tree } from '@meowdown/markdown'
 import { parseBody } from '../markdown/grammar.ts'
-import { getFirstParagraphMarkdown, getRoundTasks, type TaskLocator } from '../markdown/task-ast.ts'
+import { getRoundTasks, type TaskLocator } from '../markdown/task-ast.ts'
 import type { BlockContextSource } from './block-context.ts'
 
 /**
@@ -56,8 +56,8 @@ export function createSourceTaskLocator(source: BlockContextSource): SourceTaskL
     }
     const locator: TaskLocator = {
       astPath: entry.astPath,
-      markdown: getFirstParagraphMarkdown(entry.node),
-      checked: entry.node.checked,
+      markdown: entry.markdown,
+      checked: entry.checked,
     }
     if (!matchesFirstLine(source.body, offset, locator)) {
       return none
@@ -89,17 +89,15 @@ function collectRoundTaskMarkerOffsets(tree: Tree, body: string): number[] {
   return offsets
 }
 
+/** Both sides drop surrounding whitespace, as the projected Markdown does. */
 function matchesFirstLine(body: string, markerOffset: number, locator: TaskLocator): boolean {
   const checked = body[markerOffset + 1] !== ' '
-  let contentStart = markerOffset + 3
-  if (body[contentStart] === ' ' || body[contentStart] === '\t') {
-    contentStart += 1
-  }
+  const contentStart = markerOffset + 3
   const newline = body.indexOf('\n', contentStart)
   const lineEnd = newline === -1 ? body.length : newline
-  const firstLine = body.slice(contentStart, lineEnd).replace(/[ \t]*\r?$/, '')
+  const firstLine = body.slice(contentStart, lineEnd).trim()
   const [expected = ''] = locator.markdown.split('\n')
-  return checked === locator.checked && firstLine === expected
+  return checked === locator.checked && firstLine === expected.trim()
 }
 
 /** Start offset of every line of `text`. */

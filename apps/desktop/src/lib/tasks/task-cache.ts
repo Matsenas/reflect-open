@@ -1,9 +1,10 @@
 import {
-  encodeTaskPath,
+  findTaskMove,
   getTaskDueDate,
   isSameTaskPath,
   renderInlineText,
   type OpenTask,
+  type TaskMove,
   type TaskSnapshot,
 } from '@reflect/core'
 import { getTaskKey, isSameTask } from '@/lib/tasks/task-identity.ts'
@@ -19,8 +20,8 @@ import { getTaskKey, isSameTask } from '@/lib/tasks/task-identity.ts'
  * shared by every Tasks write — single-row and bulk alike.
  */
 
-/** Where a note write left each of its tasks: `applyTaskEdits`'s `moved` map. */
-export type TaskMoves = ReadonlyMap<string, TaskSnapshot | null>
+/** Where a note write left each of its tasks: `applyTaskEdits`'s `moved`. */
+export type TaskMoves = readonly TaskMove[]
 
 /** Drop every row matching one of `tasks` from a cached list. */
 export function withoutTasks(
@@ -30,14 +31,25 @@ export function withoutTasks(
   return rows?.filter((row) => !tasks.some((task) => isSameTask(row, task)))
 }
 
+function isSameLabels(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((label, position) => label === right[position])
+}
+
+/** The row as the write left its task; the row itself when nothing differs. */
 function withSnapshot(task: OpenTask, to: TaskSnapshot): OpenTask {
+  const breadcrumbs = to.breadcrumbs.map((label) => renderInlineText(label))
+  const moved = !isSameTaskPath(to.astPath, task.astPath) || to.checked !== task.checked
   if (to.markdown === task.markdown) {
-    return { ...task, astPath: to.astPath, checked: to.checked }
+    if (!moved && isSameLabels(breadcrumbs, task.breadcrumbs)) {
+      return task
+    }
+    return { ...task, astPath: to.astPath, checked: to.checked, breadcrumbs }
   }
   return {
     ...task,
     astPath: to.astPath,
     checked: to.checked,
+    breadcrumbs,
     markdown: to.markdown,
     text: renderInlineText(to.markdown),
     dueDate: getTaskDueDate(to.markdown),
@@ -65,31 +77,24 @@ export function withRelocatedTasks(
   notePath: string,
   moved: TaskMoves,
 ): readonly OpenTask[] | undefined {
-  if (rows === undefined || moved.size === 0) {
+  if (rows === undefined || moved.length === 0) {
     return rows
   }
   let changed = false
   const relocated = rows.flatMap((task) => {
-    if (task.notePath !== notePath) {
+    const move = task.notePath === notePath ? findTaskMove(moved, task) : undefined
+    if (move === undefined) {
       return [task]
     }
-    const to = moved.get(encodeTaskPath(task.astPath))
-    if (to === undefined) {
-      return [task]
-    }
-    if (to === null) {
+    if (move.to === null) {
       changed = true
       return []
     }
-    if (
-      isSameTaskPath(to.astPath, task.astPath) &&
-      to.markdown === task.markdown &&
-      to.checked === task.checked
-    ) {
-      return [task]
+    const next = withSnapshot(task, move.to)
+    if (next !== task) {
+      changed = true
     }
-    changed = true
-    return [withSnapshot(task, to)]
+    return [next]
   })
   return changed ? relocated : rows
 }

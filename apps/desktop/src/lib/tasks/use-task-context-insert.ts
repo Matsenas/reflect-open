@@ -65,11 +65,7 @@ export function useTaskContextInsert(): TaskContextInsert {
       })
       cache.relocate(task.notePath, result.moved)
       relocateRecentlyCompleted(root, task.notePath, result.moved)
-      const created = createInsertedTaskRow(
-        insertTargetForTask(task),
-        result.created,
-        task.breadcrumbs,
-      )
+      const created = createInsertedTaskRow(insertTargetForTask(task), result.created)
       cache.addOpen(created)
       return created
     },

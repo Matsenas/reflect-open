@@ -158,7 +158,7 @@ vi.mock('@/lib/note-task.ts', () => ({
 }))
 
 /** The result of a write that changed nothing the cache needs to re-address. */
-const WRITTEN = { source: '', moved: new Map(), inserted: [], tasks: [] }
+const WRITTEN = { source: '', moved: [], inserted: [], tasks: [] }
 
 const fail = vi.hoisted(() => vi.fn())
 const startOperation = vi.hoisted(() => vi.fn(() => ({ fail })))
@@ -268,11 +268,11 @@ beforeEach(async () => {
   editTask.mockReset()
   editTask.mockResolvedValue(WRITTEN)
   insertTask.mockReset()
-  insertTask.mockResolvedValue({ astPath: [0], markdown: '', checked: false })
+  insertTask.mockResolvedValue({ astPath: [0], markdown: '', breadcrumbs: [], checked: false })
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
-    created: { astPath: [0], markdown: '', checked: false },
-    moved: new Map(),
+    created: { astPath: [0], markdown: '', breadcrumbs: [], checked: false },
+    moved: [],
   })
   convertTaskToBullet.mockReset()
   convertTaskToBullet.mockResolvedValue(WRITTEN)
