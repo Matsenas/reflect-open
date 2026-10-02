@@ -295,6 +295,9 @@ importers:
       '@meowdown/markdown':
         specifier: ^0.74.0
         version: 0.74.0(typescript@6.0.3)
+      '@ocavue/utils':
+        specifier: ^1.8.0
+        version: 1.8.0
       '@post-embed/exporter':
         specifier: ^0.5.0
         version: 0.5.0(typescript@6.0.3)

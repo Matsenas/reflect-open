@@ -11,6 +11,7 @@ import {
   type MarkdownNode,
   type MarkdownTableCell,
 } from '@meowdown/markdown'
+import { DefaultMap } from '@ocavue/utils'
 import { TaskStaleError } from './edit.ts'
 import { splitFrontmatter } from './frontmatter.ts'
 import { documentLineEnding } from './line-endings.ts'
@@ -61,13 +62,13 @@ export interface TaskEntry {
 }
 
 export function getRoundTasks(document: MarkdownDocument): TaskEntry[] {
-  const breadcrumbsOf = new Map<MarkdownNode, readonly string[]>([[document, []]])
+  const breadcrumbsOf = new DefaultMap<MarkdownNode, readonly string[]>(() => [])
   const entries: TaskEntry[] = []
   for (const { node, parent, path } of walkMarkdownAst(document)) {
     if (parent === undefined) {
       continue
     }
-    const inherited = breadcrumbsOf.get(parent) ?? []
+    const inherited = breadcrumbsOf.get(parent)
     const label = node.type === 'listItem' ? getFirstParagraphMarkdown(node) : ''
     breadcrumbsOf.set(node, label === '' ? inherited : [...inherited, label])
     if (isRoundTask(node) && isBlockParent(parent)) {
@@ -129,12 +130,20 @@ export type InsertPosition =
   /** After any block, for example the last item of the list under a heading. */
   | { kind: 'afterBlock'; astPath: MarkdownAstPath }
 
-export type TaskEdit =
+/** An edit of one existing round task. */
+export type TaskEditItem =
   | { kind: 'toggle'; task: TaskLocator }
   | { kind: 'setMarkdown'; task: TaskLocator; markdown: string }
   | { kind: 'remove'; task: TaskLocator }
   | { kind: 'toBullet'; task: TaskLocator }
-  | { kind: 'insert'; at: InsertPosition; markdown: string }
+
+export interface TaskEditInsert {
+  kind: 'insert'
+  at: InsertPosition
+  markdown: string
+}
+
+export type TaskEdit = TaskEditItem | TaskEditInsert
 
 export interface TaskSnapshot {
   astPath: MarkdownAstPath
@@ -166,11 +175,6 @@ interface SlotTarget {
   place: 'after' | 'end'
 }
 
-type InsertEdit = Extract<TaskEdit, { kind: 'insert' }>
-type ItemEdit = Exclude<TaskEdit, { kind: 'insert' }>
-
-type PlannedEdit = { edit: InsertEdit; slot: SlotTarget } | { edit: ItemEdit; item: ItemTarget }
-
 /**
  * Apply `edits` to a note and serialize its body once. Every locator describes
  * the note as the caller last saw it: all addresses are resolved against the
@@ -186,53 +190,21 @@ export function applyTaskEdits(source: string, edits: readonly TaskEdit[]): Task
   assertSerializable(document)
 
   const before = getRoundTasks(document)
-  const planned = edits.map((edit): PlannedEdit =>
-    edit.kind === 'insert'
-      ? { edit, slot: resolveInsertPosition(document, before, edit.at) }
-      : { edit, item: locateTask(document, before, edit.task) },
-  )
-
   const created: MarkdownListItem[] = []
-  const removed = new Set<MarkdownListItem>()
-  for (const plan of planned) {
-    if ('slot' in plan) {
-      const item = createTaskItem(requireParagraphMarkdown(plan.edit.markdown))
-      const siblings = plan.slot.parent.children
-      siblings.splice(resolveSlotIndex(siblings, plan.slot), 0, item)
-      created.push(item)
-      continue
-    }
-    const { node, parent } = plan.item
-    if (removed.has(node)) {
-      throw new TaskStaleError('the task was removed earlier in this batch')
-    }
-    const edit = plan.edit
-    switch (edit.kind) {
-      case 'toggle': {
-        node.checked = !node.checked
-        if (!node.checked) {
-          delete node.taskMarker
-        }
-        break
-      }
-      case 'setMarkdown': {
-        setFirstParagraph(node, requireParagraphMarkdown(edit.markdown))
-        break
-      }
-      case 'remove': {
-        const index = requireIndex(parent.children, node)
-        parent.children.splice(index, 1, ...node.children.slice(1))
-        removed.add(node)
-        break
-      }
-      case 'toBullet': {
-        node.kind = 'bullet'
-        node.checked = false
-        node.collapsed = true
-        delete node.taskMarker
-        break
+  // Resolve every address first, then mutate in order.
+  const mutations = edits.map((edit): (() => void) => {
+    if (edit.kind === 'insert') {
+      const slot = resolveInsertPosition(document, before, edit.at)
+      const markdown = requireParagraphMarkdown(edit.markdown)
+      return () => {
+        created.push(insertTaskItem(slot, markdown))
       }
     }
+    const target = locateTask(document, before, edit.task)
+    return () => applyItemEdit(target, edit)
+  })
+  for (const mutate of mutations) {
+    mutate()
   }
 
   const after = getRoundTasks(document)
@@ -351,11 +323,40 @@ function resolveInsertPosition(
 }
 
 /** Indexes are computed when the edit is applied, so earlier edits in the batch cannot stale them. */
-function resolveSlotIndex(siblings: MarkdownBlock[], slot: SlotTarget): number {
-  if (slot.anchor === null) {
-    return siblings.length
+function insertTaskItem(slot: SlotTarget, markdown: string): MarkdownListItem {
+  const siblings = slot.parent.children
+  const index = slot.anchor === null ? siblings.length : requireIndex(siblings, slot.anchor) + 1
+  const item = createTaskItem(markdown)
+  siblings.splice(index, 0, item)
+  return item
+}
+
+function applyItemEdit({ node, parent }: ItemTarget, edit: TaskEditItem): void {
+  const index = requireIndex(parent.children, node)
+  switch (edit.kind) {
+    case 'toggle': {
+      node.checked = !node.checked
+      if (!node.checked) {
+        delete node.taskMarker
+      }
+      break
+    }
+    case 'setMarkdown': {
+      setFirstParagraph(node, requireParagraphMarkdown(edit.markdown))
+      break
+    }
+    case 'remove': {
+      parent.children.splice(index, 1, ...node.children.slice(1))
+      break
+    }
+    case 'toBullet': {
+      node.kind = 'bullet'
+      node.checked = false
+      node.collapsed = true
+      delete node.taskMarker
+      break
+    }
   }
-  return requireIndex(siblings, slot.anchor) + 1
 }
 
 function requireIndex(siblings: MarkdownBlock[], node: MarkdownBlock): number {

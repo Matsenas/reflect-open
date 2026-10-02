@@ -81,6 +81,8 @@ export {
   type InsertPosition,
   type ProjectedTask,
   type TaskEdit,
+  type TaskEditInsert,
+  type TaskEditItem,
   type TaskEditResult,
   type TaskLocator,
   type TaskSnapshot,
