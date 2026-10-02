@@ -182,6 +182,7 @@ export interface TaskEditResult {
  */
 export function findTaskMove(moves: readonly TaskMove[], task: TaskLocator): TaskMove | undefined {
   const matches = matchTaskLocator(moves, (move) => move.from, task)
+  // FIXME: if we have more than one match, we just pick the first one and print a wanring.
   return matches.length === 1 ? matches[0] : undefined
 }
 
@@ -293,7 +294,7 @@ function locateTask(before: readonly TaskEntry[], locator: TaskLocator): TaskEnt
   const [match] = matches
   if (matches.length === 1 && match !== undefined) {
     return match
-  }
+  } // FIXME: if we have more than one match, we just pick the first one and print a wanring.
   const text = JSON.stringify(locator.markdown)
   throw new TaskStaleError(
     matches.length === 0 ? `task is no longer in the note: ${text}` : `task is ambiguous: ${text}`,
