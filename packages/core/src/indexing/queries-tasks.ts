@@ -101,9 +101,7 @@ export function compareTasksByNote(left: OpenTask, right: OpenTask): number {
  * Private notes' tasks are included because this is a local-only surface.
  */
 export async function getOpenTasks(): Promise<OpenTask[]> {
-  const rows = await taskRowsQuery()
-    .where('tasks.checked', '=', 0)
-    .execute()
+  const rows = await taskRowsQuery().where('tasks.checked', '=', 0).execute()
   return toTaskRows(rows).sort(compareTasksByNote)
 }
 
@@ -112,9 +110,7 @@ export async function getOpenTasks(): Promise<OpenTask[]> {
  * Tasks view's "show archived" surface.
  */
 export async function getCompletedTasks(): Promise<OpenTask[]> {
-  const rows = await taskRowsQuery()
-    .where('tasks.checked', '=', 1)
-    .execute()
+  const rows = await taskRowsQuery().where('tasks.checked', '=', 1).execute()
   return toTaskRows(rows).sort(
     (left, right) => right.updatedAt - left.updatedAt || compareTasksByNote(left, right),
   )

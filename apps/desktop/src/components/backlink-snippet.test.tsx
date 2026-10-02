@@ -32,9 +32,17 @@ const SNIPPET = [
 
 function anchors(): SnippetTask[] {
   return [
-    { markerOffset: 124, raw: '[ ] prep agenda', checked: false, round: true, text: 'prep agenda' },
-    { markerOffset: 144, raw: '[x] square box', checked: true, round: false, text: 'square box' },
-    { markerOffset: 164, raw: '[x] send invite', checked: true, round: true, text: 'send invite' },
+    {
+      locator: { astPath: [0, 1], markdown: 'prep agenda', checked: false },
+      checked: false,
+      text: 'prep agenda',
+    },
+    { locator: null, checked: true, text: 'square box' },
+    {
+      locator: { astPath: [0, 3], markdown: 'send invite', checked: true },
+      checked: true,
+      text: 'send invite',
+    },
   ]
 }
 
@@ -66,7 +74,7 @@ describe('BacklinkSnippet task checkboxes', () => {
     await userEvent.click(boxes[0]!)
     await vi.waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
     expect(toggleTask).toHaveBeenCalledWith(
-      { notePath: 'notes/meeting.md', markerOffset: 124, raw: '[ ] prep agenda' },
+      { notePath: 'notes/meeting.md', astPath: [0, 1], markdown: 'prep agenda', checked: false },
       7,
     )
     await view.unmount()
@@ -78,7 +86,7 @@ describe('BacklinkSnippet task checkboxes', () => {
     await userEvent.click(boxes[2]!)
     await vi.waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
     expect(toggleTask).toHaveBeenCalledWith(
-      { notePath: 'notes/meeting.md', markerOffset: 164, raw: '[x] send invite' },
+      { notePath: 'notes/meeting.md', astPath: [0, 3], markdown: 'send invite', checked: true },
       7,
     )
     await view.unmount()
@@ -128,9 +136,7 @@ describe('BacklinkSnippet task checkboxes', () => {
   })
 
   it('renders checkboxes inert when the snippet has no round tasks', async () => {
-    const squareOnly: SnippetTask[] = [
-      { markerOffset: 144, raw: '[x] square box', checked: true, round: false, text: 'square box' },
-    ]
+    const squareOnly: SnippetTask[] = [{ locator: null, checked: true, text: 'square box' }]
     const view = await render(
       <QueryClientProvider
         client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}

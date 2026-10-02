@@ -15,7 +15,11 @@ function posOf(content: string, link: string): number {
 /** The full pipeline the panel runs: source → block context → task anchors. */
 function tasksFor(content: string, link = '[[Target]]'): SnippetTask[] {
   const { text, lineOrigins } = blockContextLinesAt(content, posOf(content, link))
-  return extractSnippetTasks(text, lineOrigins, createSourceTaskLocator(prepareBlockContext(content)))
+  return extractSnippetTasks(
+    text,
+    lineOrigins,
+    createSourceTaskLocator(prepareBlockContext(content)),
+  )
 }
 
 function toggled(content: string, task: SnippetTask | undefined): string {
@@ -128,7 +132,11 @@ describe('extractSnippetTasks', () => {
   it('anchors a task past frontmatter with whole-file offsets', () => {
     const content = '---\ntitle: Note\n---\n\n- [[Target]] plan\n  + [ ] after frontmatter\n'
     const [task] = tasksFor(content)
-    expect(task?.locator).toEqual({ astPath: [0, 1], markdown: 'after frontmatter', checked: false })
+    expect(task?.locator).toEqual({
+      astPath: [0, 1],
+      markdown: 'after frontmatter',
+      checked: false,
+    })
     expect(toggled(content, task)).toContain('+ [x] after frontmatter')
   })
 })
@@ -137,7 +145,11 @@ describe('createSourceTaskLocator', () => {
   it('locates every round task of a note, including inside a blockquote', () => {
     const content = '+ [ ] top\n\n> + [x] quoted\n'
     const locate = createSourceTaskLocator(prepareBlockContext(content))
-    expect(locate(content.indexOf('[ ]'))).toEqual({ astPath: [0], markdown: 'top', checked: false })
+    expect(locate(content.indexOf('[ ]'))).toEqual({
+      astPath: [0],
+      markdown: 'top',
+      checked: false,
+    })
     expect(locate(content.indexOf('[x]'))).toEqual({
       astPath: [1, 0],
       markdown: 'quoted',

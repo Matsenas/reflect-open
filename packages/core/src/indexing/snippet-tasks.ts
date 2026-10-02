@@ -1,10 +1,6 @@
 import { LEZER_NODE_IDS, parseMarkdownAst, type SyntaxNode, type Tree } from '@meowdown/markdown'
 import { parseBody } from '../markdown/grammar.ts'
-import {
-  getFirstParagraphMarkdown,
-  getRoundTasks,
-  type TaskLocator,
-} from '../markdown/task-ast.ts'
+import { getFirstParagraphMarkdown, getRoundTasks, type TaskLocator } from '../markdown/task-ast.ts'
 import type { BlockContextSource } from './block-context.ts'
 
 /**
