@@ -1,6 +1,5 @@
 import { parseMarkdownAst } from '@meowdown/markdown'
 import { describe, expect, it } from 'vitest'
-import { TaskStaleError } from './edit.ts'
 import { splitFrontmatter } from './frontmatter.ts'
 import {
   applyTaskEdits,
@@ -9,6 +8,7 @@ import {
   getTaskDueDate,
   NoteNotSerializableError,
   projectTasks,
+  TaskStaleError,
   type TaskEditResult,
   type TaskLocator,
   type TaskSnapshot,

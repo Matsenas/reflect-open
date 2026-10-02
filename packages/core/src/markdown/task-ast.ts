@@ -12,12 +12,22 @@ import {
   type MarkdownTableCell,
 } from '@meowdown/markdown'
 import { DefaultMap } from '@ocavue/utils'
-import { TaskStaleError } from './edit.ts'
 import { splitFrontmatter } from './frontmatter.ts'
 import { documentLineEnding } from './line-endings.ts'
 import { normalizeWikiTarget } from './resolve.ts'
 import { scanInlineWikiLinks } from './scan.ts'
 import { isSameTaskPath } from './task-path.ts'
+
+/**
+ * The task a caller addressed is not in the note anymore, or not uniquely:
+ * the write is refused rather than applied to the wrong item.
+ */
+export class TaskStaleError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TaskStaleError'
+  }
+}
 
 /** The note cannot be rewritten through the AST without changing its content. */
 export class NoteNotSerializableError extends Error {
