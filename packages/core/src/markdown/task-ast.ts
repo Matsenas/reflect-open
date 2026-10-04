@@ -254,11 +254,16 @@ function assertSerializable(document: MarkdownDocument): void {
     return
   }
   const reparsed = parseMarkdownAst(serializeMarkdownAst(document))
-  if (JSON.stringify(reparsed) !== JSON.stringify(document)) {
+  if (stringifyContent(reparsed) !== stringifyContent(document)) {
     throw new NoteNotSerializableError(
       'This note cannot be rewritten faithfully. Edit the task in the note itself.',
     )
   }
+}
+
+/** The tree without source positions, which move when the serializer normalizes layout. */
+function stringifyContent(document: MarkdownDocument): string {
+  return JSON.stringify(document, (key, value: unknown) => (key === 'position' ? undefined : value))
 }
 
 function hasSameContent(entry: TaskLocator, locator: TaskLocator): boolean {
