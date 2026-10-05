@@ -301,3 +301,58 @@ document behavior, and the existing local patterns over new abstractions.
   `apps/desktop/src/components/ui/`. If the shadcn primitive is missing locally,
   install or generate it there and use it. Never hand-roll an overlay primitive
   when shadcn already covers it.
+
+# Fork Maintenance (Matsenas/reflect-open)
+
+This checkout is a long-lived fork of `team-reflect/reflect-open` that is being
+grown into a more feature-rich product. These rules override the upstream
+workflow above wherever they conflict.
+
+## Branches and syncing
+
+- `master` is the fork's product branch: what gets built and shipped, and the
+  base for every fork PR. Remotes: `origin` = `Matsenas/reflect-open`,
+  `upstream` = `team-reflect/reflect-open`.
+- Upstream arrives only through the rolling `sync/upstream` → `master` PR,
+  opened weekly by a cloud routine. Merge it with **Create a merge commit** —
+  never squash or rebase it, which rewrites upstream history and makes every
+  later sync conflict.
+- Squash-merge the fork's own feature PRs so each feature is one commit that
+  can be cherry-picked onto `upstream/master` and offered upstream.
+- Never rebase or force-push `master`. Never use GitHub's *Sync fork →
+  Discard commits*.
+- Open fork PRs against `Matsenas/reflect-open` `master`. Open PRs against
+  `team-reflect/reflect-open` only when deliberately upstreaming, from a
+  branch cut from `upstream/master`.
+
+## Keeping the fork mergeable
+
+- **No fork-only index migrations.** The index schema version is the position
+  in the ordered `Migrations::new(vec![…])` list in `crates/index-schema`, so a
+  fork-appended migration collides with upstream's next one. Keep fork-only
+  persisted data in a separate SQLite file or in tables created outside that
+  list; change the shared migration list only in changes meant for upstream.
+- **Stay out of upstream's churn hotspots.** Never hand-edit the app version in
+  `apps/desktop/package.json`, the changelogs, or `.github/release-please/`.
+  Resolve `pnpm-lock.yaml` conflicts by regenerating it (`pnpm install`), not by
+  hand-merging.
+- **Build features as new modules with thin integration seams.** Prefer new
+  directories (`apps/desktop/src/features/<name>/`, a new `packages/<name>`, or
+  another `plugins/tauri-plugin-*`) and keep edits to upstream-owned files to
+  small wiring changes.
+- **Keep fork identity in its own Tauri overlay.** Product name, bundle
+  identifier, and updater endpoint/key belong in a fork-specific
+  `tauri.<flavor>.conf.json`, never in the shared `tauri.conf.json`. Builds
+  using the default config would replace the official app and auto-update
+  back to upstream releases.
+- **Offer general improvements upstream.** Every accepted upstream PR shrinks
+  the fork. Editor behavior may belong in the Meowdown repo instead.
+- Keep fork-specific notes in this section, at the end of the file, so
+  upstream edits to `AGENTS.md` merge cleanly.
+
+## Running fork builds safely
+
+- Never open the user's real notes graph with a fork or dev build while the
+  installed Reflect app uses it: a newer build migrates `.reflect/index.sqlite`
+  past what the installed app understands and breaks its index. Use a scratch
+  copy of the graph for fork and dev builds.
