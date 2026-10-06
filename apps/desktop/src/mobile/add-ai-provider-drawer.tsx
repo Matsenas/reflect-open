@@ -7,8 +7,10 @@ import {
   aiProviderRequiresApiKey,
   isPlainHttpRemoteBaseUrl,
   type AiProviderId,
+  type OpenAiRegion,
 } from '@reflect/core'
 import { InlineAlert } from '@/components/inline-alert.tsx'
+import { OpenAiRegionSelect } from '@/components/settings/openai-region-select.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerBody, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { Input } from '@/components/ui/input.tsx'
@@ -67,6 +69,7 @@ function AddAiProviderSheet({
   const [providerId, setProviderId] = useState<AiProviderId>(AI_PROVIDERS[0].id)
   const [model, setModel] = useState(AI_PROVIDERS[0].models[0].id)
   const [baseUrl, setBaseUrl] = useState('')
+  const [openAiRegion, setOpenAiRegion] = useState<OpenAiRegion | undefined>(undefined)
   const [apiKey, setApiKey] = useState('')
   const [isDefault, setIsDefault] = useState(false)
   const [consented, setConsented] = useState(false)
@@ -82,7 +85,7 @@ function AddAiProviderSheet({
   const submitDraft = async (): Promise<void> => {
     setSubmitting(true)
     try {
-      await submit({ provider: providerId, model, baseUrl, apiKey, isDefault })
+      await submit({ provider: providerId, model, baseUrl, openAiRegion, apiKey, isDefault })
     } finally {
       setSubmitting(false)
     }
@@ -117,6 +120,7 @@ function AddAiProviderSheet({
               setProviderId(next.id)
               setModel(next.models[0].id)
               setBaseUrl(next.id === 'openai-compatible' ? DEFAULT_OPENAI_COMPATIBLE_BASE_URL : '')
+              setOpenAiRegion(undefined)
               setConsented(false)
               resetUnverified()
             }}
@@ -176,6 +180,19 @@ function AddAiProviderSheet({
             </Select>
           )}
         </div>
+
+        {provider.id === 'openai' ? (
+          <div className="flex flex-col gap-1">
+            <span className={FIELD_LABEL_CLASS}>Data residency</span>
+            <OpenAiRegionSelect
+              value={openAiRegion}
+              onChange={(region) => {
+                setOpenAiRegion(region)
+                resetUnverified()
+              }}
+            />
+          </div>
+        ) : null}
 
         {isOpenAICompatible ? (
           <label className="flex flex-col gap-1">

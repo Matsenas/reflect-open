@@ -17,6 +17,14 @@ export {
   normalizeOpenAICompatibleBaseUrl,
   OPENAI_COMPATIBLE_PROVIDER_ID,
 } from '../ai/openai-compatible.ts'
+export {
+  OPENAI_REGIONS,
+  OPENAI_REGION_LABELS,
+  openAiBaseUrl,
+  openAiRegionLabel,
+  openAiRegionSchema,
+  type OpenAiRegion,
+} from '../ai/openai-region.ts'
 export { setSecret, getSecret, deleteSecret } from '../secrets/keychain.ts'
 export {
   KEY_HINT_LENGTH,

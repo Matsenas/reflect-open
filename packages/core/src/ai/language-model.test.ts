@@ -169,6 +169,36 @@ describe('languageModel', () => {
     expect(calls[0]!.body).toContain('"model":"gpt-5.6-terra"')
   })
 
+  it('leaves storage to the API default on the global OpenAI endpoint', async () => {
+    const calls: RecordedCall[] = []
+
+    await generateText({
+      model: await languageModel(OPENAI_CONFIG, 'sk-test', recordingOpenAiFetch(calls)),
+      prompt: 'hello',
+      maxRetries: 0,
+    })
+
+    expect(calls[0]!.body).not.toContain('"store"')
+  })
+
+  it('routes a data-residency OpenAI entry to its regional endpoint without storing', async () => {
+    const calls: RecordedCall[] = []
+
+    await generateText({
+      model: await languageModel(
+        { ...OPENAI_CONFIG, region: 'eu' },
+        'sk-test',
+        recordingOpenAiFetch(calls),
+      ),
+      prompt: 'hello',
+      maxRetries: 0,
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://eu.api.openai.com/v1/responses')
+    expect(calls[0]!.body).toContain('"store":false')
+  })
+
   it('routes Claude Sonnet 5 through Anthropic Messages with direct-browser access', async () => {
     const calls: RecordedCall[] = []
 

@@ -24,12 +24,14 @@ const PROVIDER: AiProviderConfig = {
 
 const onMakeDefault = vi.fn<(id: string) => void>()
 const onSetDefaultModel = vi.fn<(id: string, model: string) => void>()
+const onSetOpenAiRegion = vi.fn<(id: string, region: string | undefined) => void>()
 const onRemove = vi.fn<(id: string) => Promise<void>>()
 const onOpenChange = vi.fn<(open: boolean) => void>()
 
 beforeEach(() => {
   onMakeDefault.mockReset()
   onSetDefaultModel.mockReset()
+  onSetOpenAiRegion.mockReset()
   onRemove.mockReset().mockResolvedValue(undefined)
   onOpenChange.mockReset()
 })
@@ -43,6 +45,7 @@ async function renderSheet(isDefault = false) {
       onOpenChange={onOpenChange}
       onMakeDefault={onMakeDefault}
       onSetDefaultModel={onSetDefaultModel}
+      onSetOpenAiRegion={onSetOpenAiRegion}
       onRemove={onRemove}
     />,
   )
@@ -70,6 +73,15 @@ describe('AiProviderActionsDrawer', () => {
     await page.getByRole('button', { name: 'GPT-5.4 mini' }).click()
 
     expect(onSetDefaultModel).toHaveBeenCalledWith('p1', 'gpt-5.4-mini')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('moves an OpenAI provider to a data-residency region and closes', async () => {
+    await renderSheet()
+
+    await page.getByRole('button', { name: 'Europe (EEA + Switzerland)' }).click()
+
+    expect(onSetOpenAiRegion).toHaveBeenCalledWith('p1', 'eu')
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 

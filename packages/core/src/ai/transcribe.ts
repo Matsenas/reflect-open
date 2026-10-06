@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { bytesToBase64 } from '../lib/base64.ts'
 import { ReflectError } from '../errors.ts'
+import { openAiBaseUrl, type OpenAiRegion } from './openai-region.ts'
 import type { TranscriptionProvider } from './provider-config.ts'
 import {
   httpError,
@@ -42,6 +43,8 @@ export const GOOGLE_TRANSCRIPTION_FALLBACK_MODEL = 'gemini-2.5-flash'
 export interface TranscriptionRequest {
   provider: TranscriptionProvider
   apiKey: string
+  /** OpenAI only: the key's data-residency region (absent = global endpoint). */
+  openAiRegion?: OpenAiRegion | undefined
   /** The recording, as MediaRecorder produced it. */
   audio: Blob
   /** The recording's MIME type, possibly with codec parameters. */
@@ -117,7 +120,7 @@ async function transcribeWithOpenAi(request: TranscriptionRequest): Promise<stri
     }
     return send(
       fetchFn,
-      'https://api.openai.com/v1/audio/transcriptions',
+      `${openAiBaseUrl(request.openAiRegion)}/audio/transcriptions`,
       {
         method: 'POST',
         headers: { Authorization: `Bearer ${request.apiKey}` },

@@ -6,10 +6,12 @@ import {
   aiProviderRequiresApiKey,
   errorMessage,
   type AiProviderConfig,
+  type OpenAiRegion,
 } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { startOperation } from '@/lib/operations.ts'
 import { ModelCombobox } from './model-combobox.tsx'
+import { OpenAiRegionSelect } from './openai-region-select.tsx'
 
 interface AiProviderRowProps {
   config: AiProviderConfig
@@ -19,6 +21,8 @@ interface AiProviderRowProps {
   onMakeDefault: (id: string) => void
   /** Change the default model used by this provider entry. */
   onSetDefaultModel: (id: string, model: string) => void
+  /** Change an OpenAI entry's data-residency region (undefined = global). */
+  onSetOpenAiRegion: (id: string, region: OpenAiRegion | undefined) => void
   /** Remove the entry and its keychain secret; rejects on failure. */
   onRemove: (id: string) => Promise<void>
 }
@@ -34,6 +38,7 @@ export function AiProviderRow({
   isDefault,
   onMakeDefault,
   onSetDefaultModel,
+  onSetOpenAiRegion,
   onRemove,
 }: AiProviderRowProps): ReactElement {
   const provider = aiProvider(config.provider)
@@ -63,6 +68,15 @@ export function AiProviderRow({
         </p>
         {config.provider === 'openai-compatible' ? (
           <p className="mt-0.5 truncate text-xs text-text-muted">{config.baseUrl}</p>
+        ) : null}
+        {config.provider === 'openai' ? (
+          <OpenAiRegionSelect
+            value={config.region}
+            onChange={(region) => onSetOpenAiRegion(config.id, region)}
+            ariaLabel={`Data residency for ${providerLabel}`}
+            size="sm"
+            className="mt-1.5 w-56 max-w-full"
+          />
         ) : null}
       </div>
       <ModelCombobox

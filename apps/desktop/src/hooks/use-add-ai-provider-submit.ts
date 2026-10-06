@@ -74,7 +74,7 @@ export function useAddAiProviderSubmit({
       try {
         if (!unverified) {
           const validation = await validateApiKey(
-            { provider: draft.provider, apiKey, baseUrl },
+            { provider: draft.provider, apiKey, baseUrl, openAiRegion: draft.openAiRegion },
             providerFetch,
           )
           if (validation === 'invalid') {

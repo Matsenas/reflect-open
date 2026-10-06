@@ -53,6 +53,21 @@ describe('validateApiKey', () => {
     expect(calls[5]!.headers['Authorization']).toBeUndefined()
   })
 
+  it('probes a data-residency OpenAI key on its regional endpoint', async () => {
+    const urls: string[] = []
+    const recordingFetch: typeof fetch = async (input) => {
+      urls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+
+    await validateApiKey(
+      { provider: 'openai', apiKey: 'sk-test', openAiRegion: 'eu' },
+      recordingFetch,
+    )
+
+    expect(urls).toEqual(['https://eu.api.openai.com/v1/models'])
+  })
+
   it('reads an ok response as valid', async () => {
     expect(
       await validateApiKey({ provider: 'openai', apiKey: 'sk-test' }, fetchReturning(200)),

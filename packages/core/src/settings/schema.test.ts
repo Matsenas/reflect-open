@@ -319,6 +319,26 @@ describe('settingsSchema', () => {
       ])
     })
 
+    it('keeps an OpenAI data-residency region and degrades an unknown one to global', () => {
+      const regional = {
+        id: 'eu1',
+        provider: 'openai',
+        model: 'gpt-6.1-sol',
+        keyHint: '',
+        region: 'eu',
+      }
+      const unknown = {
+        id: 'x1',
+        provider: 'openai',
+        model: 'gpt-6.1-sol',
+        keyHint: '',
+        region: 'mars',
+      }
+      const parsed = settingsSchema.parse({ aiProviders: [regional, unknown] }).aiProviders
+      expect(parsed[0]).toEqual(regional)
+      expect(parsed[1]).toEqual({ ...unknown, region: undefined })
+    })
+
     it('defaults the per-entry display fields', () => {
       const entry = { id: 'abc', provider: 'openai', model: 'gpt-5.1' }
       expect(settingsSchema.parse({ aiProviders: [entry] }).aiProviders).toEqual([

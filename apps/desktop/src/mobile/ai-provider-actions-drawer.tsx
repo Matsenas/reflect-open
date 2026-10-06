@@ -4,7 +4,10 @@ import {
   aiProvider,
   aiProviderRequiresApiKey,
   errorMessage,
+  OPENAI_REGIONS,
+  openAiRegionLabel,
   type AiProviderConfig,
+  type OpenAiRegion,
 } from '@reflect/core'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { SettingsActionRow, SettingsGroup, SettingsSelectRow } from '@/mobile/settings-list.tsx'
@@ -18,14 +21,16 @@ interface AiProviderActionsDrawerProps {
   onOpenChange: (open: boolean) => void
   onMakeDefault: (id: string) => void
   onSetDefaultModel: (id: string, model: string) => void
+  /** Change an OpenAI entry's data-residency region (undefined = global). */
+  onSetOpenAiRegion: (id: string, region: OpenAiRegion | undefined) => void
   /** Delete the key from the keychain, then drop the settings entry. */
   onRemove: (id: string) => Promise<void>
 }
 
 /**
  * The per-provider management sheet (the {@link NoteActionsMenu} pattern):
- * tapping a configured provider row in Settings offers make-default and
- * remove. Removing deletes the keychain entry first, exactly like desktop —
+ * tapping a configured provider row in Settings offers the default model,
+ * an OpenAI entry's data-residency region, make-default and remove. Removing deletes the keychain entry first, exactly like desktop —
  * both actions come from `useAiProviders`, this is only the touch shell.
  */
 export function AiProviderActionsDrawer({
@@ -35,6 +40,7 @@ export function AiProviderActionsDrawer({
   onOpenChange,
   onMakeDefault,
   onSetDefaultModel,
+  onSetOpenAiRegion,
   onRemove,
 }: AiProviderActionsDrawerProps): ReactElement {
   const [removing, setRemoving] = useState(false)
@@ -92,6 +98,21 @@ export function AiProviderActionsDrawer({
                   />
                 ))}
               </SettingsGroup>
+              {provider.provider === 'openai' ? (
+                <SettingsGroup header="Data residency">
+                  {[undefined, ...OPENAI_REGIONS].map((region) => (
+                    <SettingsSelectRow
+                      key={region ?? 'global'}
+                      label={openAiRegionLabel(region)}
+                      selected={region === provider.region}
+                      onPress={() => {
+                        onSetOpenAiRegion(provider.id, region)
+                        onOpenChange(false)
+                      }}
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
               <SettingsGroup>
                 <SettingsActionRow
                   label={isDefault ? 'Default provider' : 'Use as default'}

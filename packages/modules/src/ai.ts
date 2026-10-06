@@ -1,5 +1,6 @@
 export {
   APICallError,
+  defaultSettingsMiddleware,
   generateObject,
   generateText,
   isStepCount,
@@ -7,6 +8,7 @@ export {
   Output,
   simulateReadableStream,
   streamText,
+  wrapLanguageModel,
 } from 'ai'
 export type {
   LanguageModel,
