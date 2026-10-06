@@ -79,8 +79,8 @@ export function NoteAliasesSection({
   return (
     <SidebarSection storageKey="note-aliases" title="Note aliases">
       <ul className="space-y-1">
-        {aliases.frontmatter.map((alias) => (
-          <li key={`frontmatter:${alias}`} className={ROW_CLASS_NAME}>
+        {aliases.frontmatter.map((alias, index) => (
+          <li key={`frontmatter:${index}:${alias}`} className={ROW_CLASS_NAME}>
             <span className="min-w-0 flex-1 truncate text-left text-xs font-medium">{alias}</span>
             <button
               type="button"
