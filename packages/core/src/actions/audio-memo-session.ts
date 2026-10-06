@@ -4,6 +4,7 @@ import {
   TRANSCRIPTION_MAX_SEGMENT_BYTES,
   type TranscriptionProvider,
 } from '../ai/provider-config.ts'
+import type { OpenAiRegion } from '../ai/openai-region.ts'
 import { transcribeAudio } from '../ai/transcribe.ts'
 import { isTranscriptionOversize, isTranscriptionRejected } from '../ai/transcribe-http.ts'
 import { base64ToBytes } from '../lib/base64.ts'
@@ -206,6 +207,8 @@ export interface TranscribeSessionPartsInput {
   session: AudioMemoSession
   provider: TranscriptionProvider
   apiKey: string
+  /** OpenAI only: the key's data-residency region (absent = global endpoint). */
+  openAiRegion?: OpenAiRegion | undefined
   /** User transcription hint, if any. */
   prompt: string
   generation: number
@@ -267,6 +270,7 @@ export async function transcribeSessionParts(
       const text = await transcribeAudio({
         provider: input.provider,
         apiKey: input.apiKey,
+        openAiRegion: input.openAiRegion,
         prompt: input.prompt,
         audio: new Blob([bytes], { type: part.memo.mimeType }),
         mimeType: part.memo.mimeType,

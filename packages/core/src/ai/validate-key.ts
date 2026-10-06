@@ -2,6 +2,7 @@ import type { AiProviderId, HostedAiProviderId } from '../settings/schema.ts'
 import { anthropicDirectBrowserAccessHeaders } from './anthropic-headers.ts'
 import { APP_REVIEW_STUB_KEY } from './app-review-demo.ts'
 import { isHttpBaseUrl, normalizeOpenAICompatibleBaseUrl } from './openai-compatible.ts'
+import { openAiBaseUrl, type OpenAiRegion } from './openai-region.ts'
 import { OPENROUTER_BASE_URL } from './openrouter.ts'
 
 /**
@@ -29,6 +30,8 @@ export interface ApiKeyValidationInput {
   provider: AiProviderId
   apiKey: string
   baseUrl?: string | undefined
+  /** OpenAI only: the data-residency region the key's project lives in. */
+  openAiRegion?: OpenAiRegion | undefined
 }
 
 const PROBES: Record<HostedAiProviderId, KeyProbe> = {
@@ -74,6 +77,11 @@ function openAiCompatibleProbe(input: ApiKeyValidationInput): KeyProbe | null {
 function keyProbe(input: ApiKeyValidationInput): KeyProbe | null {
   if (input.provider === 'openai-compatible') {
     return openAiCompatibleProbe(input)
+  }
+  if (input.provider === 'openai') {
+    // A residency project's key is rejected by every other region's domain,
+    // so the probe must hit the same endpoint the entry will use.
+    return { ...PROBES.openai, url: `${openAiBaseUrl(input.openAiRegion)}/models` }
   }
   return PROBES[input.provider]
 }

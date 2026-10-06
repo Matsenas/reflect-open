@@ -345,6 +345,49 @@ describe('AiProvidersSection', () => {
     expect(secrets.get('ai-api-key:b')).toBe('sk-openai-secret')
   })
 
+  it('adds an EU data-residency OpenAI key, verifying it on the regional endpoint', async () => {
+    await renderSection()
+
+    const dialog = await openDialog()
+    await dialog.getByRole('combobox', { name: 'Provider' }).click()
+    await page.getByRole('option', { name: 'OpenAI', exact: true }).click()
+    await dialog.getByRole('combobox', { name: 'Data residency' }).click()
+    await page.getByRole('option', { name: 'Europe (EEA + Switzerland)' }).click()
+    await dialog.getByLabelText('API key').fill('sk-proj-eu-wxyz1')
+    await dialog.getByRole('button', { name: 'Add provider' }).click()
+
+    await vi.waitFor(() => expect(saved).toHaveLength(1))
+    expect(lastSavedDoc().aiProviders[0]).toMatchObject({ provider: 'openai', region: 'eu' })
+    expect(providerFetchMock).toHaveBeenCalledWith(
+      'https://eu.api.openai.com/v1/models',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('moves a configured OpenAI entry to a data-residency region and back', async () => {
+    stored = twoStoredModels()
+    secrets.set('ai-api-key:b', 'sk-openai-secret')
+    await renderSection()
+
+    await page.getByRole('combobox', { name: 'Data residency for OpenAI' }).click()
+    await page.getByRole('option', { name: 'Europe (EEA + Switzerland)' }).click()
+    await vi.waitFor(() => {
+      expect(lastSavedDoc().aiProviders).toContainEqual({
+        ...entry({ id: 'b', provider: 'openai', model: 'gpt-5.5', keyHint: 'abcd2' }),
+        region: 'eu',
+      })
+    })
+
+    await page.getByRole('combobox', { name: 'Data residency for OpenAI' }).click()
+    await page.getByRole('option', { name: 'Global' }).click()
+    await vi.waitFor(() => {
+      expect(lastSavedDoc().aiProviders).toContainEqual(
+        entry({ id: 'b', provider: 'openai', model: 'gpt-5.5', keyHint: 'abcd2' }),
+      )
+    })
+    expect(secrets.get('ai-api-key:b')).toBe('sk-openai-secret')
+  })
+
   it('traps Tab inside the dialog', async () => {
     await renderSection()
     await expect.element(page.getByText(/No AI providers configured/)).toBeInTheDocument()

@@ -12,6 +12,7 @@ import {
   type AiProviderConfig,
   type AiProviderId,
   type AppError,
+  type OpenAiRegion,
 } from '@reflect/core'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
@@ -27,6 +28,8 @@ export interface NewAiProvider {
   provider: AiProviderId
   model: string
   baseUrl?: string | undefined
+  /** OpenAI only: the project's data-residency region (absent = global). */
+  openAiRegion?: OpenAiRegion | undefined
   apiKey: string
   isDefault: boolean
 }
@@ -49,6 +52,8 @@ interface UseAiProvidersValue {
   makeDefault: (id: string) => void
   /** Change the default model used by the configured provider entry. */
   setDefaultModel: (id: string, model: string) => void
+  /** Change an OpenAI entry's data-residency region (undefined = global). */
+  setOpenAiRegion: (id: string, region: OpenAiRegion | undefined) => void
 }
 
 export function useAiProviders(): UseAiProvidersValue {
@@ -95,12 +100,20 @@ export function useAiProviders(): UseAiProvidersValue {
                 baseUrl: normalizeOpenAICompatibleBaseUrl(draft.baseUrl ?? ''),
                 keyHint: apiKeyHint(apiKey),
               }
-            : {
-                id,
-                provider: draft.provider,
-                model: draft.model,
-                keyHint: apiKeyHint(apiKey),
-              }
+            : draft.provider === 'openai' && draft.openAiRegion !== undefined
+              ? {
+                  id,
+                  provider: draft.provider,
+                  model: draft.model,
+                  region: draft.openAiRegion,
+                  keyHint: apiKeyHint(apiKey),
+                }
+              : {
+                  id,
+                  provider: draft.provider,
+                  model: draft.model,
+                  keyHint: apiKeyHint(apiKey),
+                }
         const next = withAiProviderAdded(
           { providers: current.aiProviders, defaultProviderId: current.defaultAiProviderId },
           entry,
@@ -154,6 +167,26 @@ export function useAiProviders(): UseAiProvidersValue {
     [updateSettingsWith],
   )
 
+  const setOpenAiRegion = useCallback(
+    (id: string, region: OpenAiRegion | undefined): void => {
+      updateSettingsWith((current) => ({
+        aiProviders: current.aiProviders.map((provider) => {
+          if (provider.id !== id || provider.provider !== 'openai') {
+            return provider
+          }
+          return {
+            id: provider.id,
+            provider: provider.provider,
+            model: provider.model,
+            keyHint: provider.keyHint,
+            ...(region === undefined ? {} : { region }),
+          }
+        }),
+      }))
+    },
+    [updateSettingsWith],
+  )
+
   return {
     providers,
     defaultProvider,
@@ -161,5 +194,6 @@ export function useAiProviders(): UseAiProvidersValue {
     removeProvider,
     makeDefault,
     setDefaultModel,
+    setOpenAiRegion,
   }
 }

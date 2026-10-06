@@ -9,6 +9,7 @@ import {
   isHttpBaseUrl,
   isPlainHttpRemoteBaseUrl,
   type AiProviderId,
+  type OpenAiRegion,
 } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
@@ -24,6 +25,7 @@ import { InlineAlert } from '@/components/inline-alert.tsx'
 import { useAddAiProviderSubmit } from '@/hooks/use-add-ai-provider-submit.ts'
 import type { NewAiProvider } from '@/hooks/use-ai-providers.ts'
 import { ModelCombobox } from './model-combobox.tsx'
+import { OpenAiRegionSelect } from './openai-region-select.tsx'
 
 interface AddAiProviderFormProps {
   /** Persists the new provider (keychain + settings); rejects on failure. */
@@ -35,6 +37,7 @@ interface AddAiProviderValues {
   provider: AiProviderId
   model: string
   baseUrl: string
+  openAiRegion: OpenAiRegion | undefined
   apiKey: string
   isDefault: boolean
 }
@@ -52,6 +55,7 @@ export function AddAiProviderForm({ onAdd, onClose }: AddAiProviderFormProps): R
       provider: AI_PROVIDERS[0].id,
       model: AI_PROVIDERS[0].models[0].id,
       baseUrl: '',
+      openAiRegion: undefined,
       apiKey: '',
       isDefault: false,
     },
@@ -64,6 +68,7 @@ export function AddAiProviderForm({ onAdd, onClose }: AddAiProviderFormProps): R
   const providerId = useWatch({ control, name: 'provider' })
   const selectedModel = useWatch({ control, name: 'model' })
   const baseUrlValue = useWatch({ control, name: 'baseUrl' })
+  const openAiRegion = useWatch({ control, name: 'openAiRegion' })
   const provider = aiProvider(providerId)
   const isOpenAICompatible = provider.id === 'openai-compatible'
   const apiKeyRequired = aiProviderRequiresApiKey(provider.id)
@@ -95,6 +100,7 @@ export function AddAiProviderForm({ onAdd, onClose }: AddAiProviderFormProps): R
               'baseUrl',
               next.id === 'openai-compatible' ? DEFAULT_OPENAI_COMPATIBLE_BASE_URL : '',
             )
+            setValue('openAiRegion', undefined)
             resetUnverified()
           }}
         >
@@ -144,6 +150,23 @@ export function AddAiProviderForm({ onAdd, onClose }: AddAiProviderFormProps): R
           </span>
         ) : null}
       </div>
+
+      {provider.id === 'openai' ? (
+        <div className="flex flex-col gap-1">
+          <span className={FIELD_LABEL_CLASS}>Data residency</span>
+          <OpenAiRegionSelect
+            value={openAiRegion}
+            onChange={(region) => {
+              setValue('openAiRegion', region)
+              resetUnverified()
+            }}
+          />
+          <span className="text-xs text-text-muted">
+            Keep Global unless your OpenAI project has data residency; a regional project only
+            accepts requests on its region's endpoint.
+          </span>
+        </div>
+      ) : null}
 
       {isOpenAICompatible ? (
         <label className="flex flex-col gap-1">

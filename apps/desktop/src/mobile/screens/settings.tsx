@@ -142,8 +142,15 @@ export function MobileSettings(): ReactElement {
   const status = useMobileSyncStatus()
   const [disconnecting, setDisconnecting] = useState(false)
   const [connectOpen, setConnectOpen] = useState(false)
-  const { providers, defaultProvider, addProvider, removeProvider, makeDefault, setDefaultModel } =
-    useAiProviders()
+  const {
+    providers,
+    defaultProvider,
+    addProvider,
+    removeProvider,
+    makeDefault,
+    setDefaultModel,
+    setOpenAiRegion,
+  } = useAiProviders()
   const [addProviderOpen, setAddProviderOpen] = useState(false)
   const [systemPromptOpen, setSystemPromptOpen] = useState(false)
   const [transcriptionPromptOpen, setTranscriptionPromptOpen] = useState(false)
@@ -483,6 +490,7 @@ export function MobileSettings(): ReactElement {
         onOpenChange={setManageOpen}
         onMakeDefault={makeDefault}
         onSetDefaultModel={setDefaultModel}
+        onSetOpenAiRegion={setOpenAiRegion}
         onRemove={removeProvider}
       />
       <TextSettingDrawer

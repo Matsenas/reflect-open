@@ -3,6 +3,7 @@ import type { AiProviderConfig } from '../settings/schema.ts'
 import { anthropicDirectBrowserAccessHeaders } from './anthropic-headers.ts'
 import { APP_REVIEW_STUB_KEY, createDemoModel } from './app-review-demo.ts'
 import { OPENAI_COMPATIBLE_PROVIDER_ID } from './openai-compatible.ts'
+import { openAiBaseUrl } from './openai-region.ts'
 import { OPENROUTER_BASE_URL, openRouterAttributionHeaders } from './openrouter.ts'
 
 /**
@@ -24,7 +25,24 @@ export async function languageModel(
   switch (config.provider) {
     case 'openai': {
       const { createOpenAI } = await import('@reflect/modules/ai-sdk/openai')
-      return createOpenAI({ apiKey, fetch: fetchFn })(config.model)
+      const model = createOpenAI({
+        apiKey,
+        fetch: fetchFn,
+        baseURL: openAiBaseUrl(config.region),
+      })(config.model)
+      if (config.region === undefined) {
+        return model
+      }
+      // Data-residency projects reject stored responses ("Cannot set
+      // store=true in non-US regions"), and the Responses API stores by
+      // default, so regional entries opt out for every call.
+      const { defaultSettingsMiddleware, wrapLanguageModel } = await import('@reflect/modules/ai')
+      return wrapLanguageModel({
+        model,
+        middleware: defaultSettingsMiddleware({
+          settings: { providerOptions: { openai: { store: false } } },
+        }),
+      })
     }
     case 'anthropic': {
       const { createAnthropic } = await import('@reflect/modules/ai-sdk/anthropic')

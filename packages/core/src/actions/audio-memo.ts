@@ -593,6 +593,7 @@ export async function reconcileAudioMemos(
         session,
         provider: config.provider,
         apiKey,
+        openAiRegion: config.provider === 'openai' ? config.region : undefined,
         prompt: input.transcriptionPrompt,
         generation: input.generation,
         fetchFn: input.fetchFn,

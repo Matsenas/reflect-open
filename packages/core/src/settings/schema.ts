@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isHttpBaseUrl, normalizeOpenAICompatibleBaseUrl } from '../ai/openai-compatible.ts'
+import { openAiRegionSchema } from '../ai/openai-region.ts'
 
 /**
  * The user-settings schema — the policy half of the settings store. Rust
@@ -378,7 +379,8 @@ export const openAiCompatibleBaseUrlSchema = z
  * is the app-wide default is a sibling scalar (`defaultAiProviderId`), not a
  * per-entry flag, so "at most one default" holds by construction.
  * OpenAI-compatible entries additionally carry their API base URL, because it
- * is user configuration rather than a fixed catalog endpoint.
+ * is user configuration rather than a fixed catalog endpoint. OpenAI entries
+ * may carry a data-residency region, which selects the regional endpoint.
  */
 const aiProviderConfigBaseSchema = z.object({
   id: z.string().min(1),
@@ -388,6 +390,11 @@ const aiProviderConfigBaseSchema = z.object({
 
 const openAiProviderConfigSchema = aiProviderConfigBaseSchema.extend({
   provider: z.literal('openai'),
+  /**
+   * The project's data-residency region. Absent (the default) means the
+   * global endpoint; an unknown value degrades to global.
+   */
+  region: openAiRegionSchema.optional().catch(undefined),
 })
 
 const anthropicProviderConfigSchema = aiProviderConfigBaseSchema.extend({

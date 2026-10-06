@@ -63,6 +63,15 @@ describe('transcribeAudio (openai)', () => {
     expect(file.name).toBe('memo.m4a')
   })
 
+  it('transcribes a data-residency key on its regional endpoint', async () => {
+    const calls: RecordedCall[] = []
+    const fetchFn = recordingFetch(calls, () => jsonResponse(200, { text: 'Tere.' }))
+
+    await transcribeAudio(request({ fetchFn, openAiRegion: 'eu' }))
+
+    expect(calls[0]!.url).toBe('https://eu.api.openai.com/v1/audio/transcriptions')
+  })
+
   it('sends the hint as the prompt field and omits it when empty', async () => {
     const calls: RecordedCall[] = []
     const fetchFn = recordingFetch(calls, () => jsonResponse(200, { text: 'ok' }))
