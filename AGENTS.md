@@ -350,6 +350,22 @@ workflow above wherever they conflict.
 - Keep fork-specific notes in this section, at the end of the file, so
   upstream edits to `AGENTS.md` merge cleanly.
 
+## Building the fork's Mac app
+
+- Build with the fork overlay, which keeps the official name and bundle
+  identifier (so settings, keychain entries and capture-host registration carry
+  over), signs ad-hoc, drops the restricted iCloud entitlements (no Reflect
+  Developer ID), and points the updater at a dead endpoint so upstream releases
+  never auto-replace the fork build:
+  `pnpm --filter @reflect/desktop tauri build --config src-tauri/tauri.fork.conf.json`
+- The bundle lands in `target/release/bundle/macos/Reflect.app`. Quit Reflect,
+  keep a zipped copy of the app being replaced, then copy the bundle into
+  `/Applications`. Each rebuild changes the ad-hoc signature, so macOS asks
+  once more for keychain access to the stored AI keys.
+- Without the iCloud entitlements the app's own iCloud container is
+  unavailable; graphs kept in iCloud Drive itself still sync and still get
+  the conflict sweep.
+
 ## Running fork builds safely
 
 - Never open the user's real notes graph with a fork or dev build while the
