@@ -1064,8 +1064,8 @@ describe('TasksScreen', () => {
   })
 
   it('Enter in the editor saves the row and opens the next task (continuous entry)', async () => {
-    insertTask.mockResolvedValue({
-      created: { astPath: [7], markdown: '', breadcrumbs: [], checked: false },
+    continueTaskInContext.mockResolvedValue({
+      created: { astPath: [3], markdown: '', breadcrumbs: [], checked: false },
       moved: [],
     })
     getOpenTasks.mockResolvedValue([
@@ -1083,9 +1083,15 @@ describe('TasksScreen', () => {
     await view.findByTestId('task-editor')
     await userEvent.click(view.getByRole('button', { name: 'continue-edit' }))
 
-    // Persists this row's edit, then appends the next task in the same note.
-    await waitFor(() => expect(writesOf('setMarkdown')).not.toHaveLength(0))
-    await waitFor(() => expect(insertTask).toHaveBeenCalledWith('notes/a.md', 1))
+    // One write persists this row's edit and adds the next task after it.
+    await waitFor(() =>
+      expect(continueTaskInContext).toHaveBeenCalledWith(
+        expect.objectContaining({ notePath: 'notes/a.md', astPath: [2] }),
+        'edited content',
+        1,
+      ),
+    )
+    expect(insertTask).not.toHaveBeenCalled()
     await view.unmount()
   })
 
@@ -1204,10 +1210,6 @@ describe('TasksScreen', () => {
   })
 
   it('Enter on a cleared row deletes it instead of leaving a bare task (no ghost)', async () => {
-    insertTask.mockResolvedValue({
-      created: { astPath: [0], markdown: '', breadcrumbs: [], checked: false },
-      moved: [],
-    })
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
@@ -1222,15 +1224,16 @@ describe('TasksScreen', () => {
     await userEvent.click(await view.findByRole('button', { name: 'first' }))
     await view.findByTestId('task-editor')
     await userEvent.click(view.getByRole('button', { name: 'continue-empty' }))
-    // The cleared row is deleted (not edited to `+ [ ]`); nothing is written as an edit.
+    // The cleared row is removed by the same write that adds the next one; it
+    // is never edited to a bare `+ [ ]`.
     await waitFor(() =>
-      expect(writeTask).toHaveBeenCalledWith(
+      expect(continueTaskInContext).toHaveBeenCalledWith(
         expect.objectContaining({ notePath: 'notes/a.md' }),
-        [{ kind: 'remove' }],
+        '',
         1,
       ),
     )
-    expect(writesOf('setMarkdown')).toHaveLength(0)
+    expect(writeTask).not.toHaveBeenCalled()
     await view.unmount()
   })
 
