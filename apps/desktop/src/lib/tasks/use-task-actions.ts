@@ -61,7 +61,8 @@ export interface TaskActions {
   /** Toggle one row checkbox with exact rollback semantics for inline-editor checkbox clicks. */
   checkboxToggle: (task: OpenTask) => void
   /**
-   * Add a new empty task to `target`'s note (Return-to-add, V1) and return the
+   * Add a new empty task to the `## Tasks` section of `target`'s note
+   * (Return-to-add, V1) and return the
    * optimistic row to select — its inline editor opens focused. Resolves to
    * `null` when there's no graph or the write failed (the toast already fired).
    */
@@ -379,6 +380,24 @@ export function useTaskActions(): TaskActions {
     },
   })
 
+  /**
+   * Write a new empty task into `target`'s note and surface it as the optimistic
+   * row to select, or null when the write failed (reconcile already surfaced it).
+   * The Tasks section can sit above other tasks of the note, so their cached
+   * rows are re-keyed from the write's `moved` map before the new row is added.
+   */
+  async function insertInto(target: InsertTaskTarget): Promise<OpenTask | null> {
+    try {
+      const result = await insertMutation.mutateAsync(target)
+      relocate(target.notePath, result.moved)
+      const created = createInsertedTaskRow(target, result.created)
+      cache.addOpen(created)
+      return created
+    } catch {
+      return null
+    }
+  }
+
   async function persistTaskDraft(task: OpenTask, content: string | null): Promise<boolean> {
     try {
       if (content === '') {
@@ -443,13 +462,7 @@ export function useTaskActions(): TaskActions {
       if (graph?.generation === undefined) {
         return null
       }
-      try {
-        const created = createInsertedTaskRow(target, await insertMutation.mutateAsync(target))
-        cache.addOpen(created)
-        return created
-      } catch {
-        return null // reconcile already surfaced the failure
-      }
+      return await insertInto(target)
     },
     insertAfter: async (task, content, target) => {
       if (graph?.generation === undefined) {
@@ -474,13 +487,7 @@ export function useTaskActions(): TaskActions {
       if (!(await persistTaskDraft(task, content))) {
         return null // the edit/delete rollback already surfaced the failure
       }
-      try {
-        const created = createInsertedTaskRow(target, await insertMutation.mutateAsync(target))
-        cache.addOpen(created)
-        return created
-      } catch {
-        return null
-      }
+      return await insertInto(target)
     },
     editAndToggle: (task, content) => {
       if (graph?.generation !== undefined && !editAndToggleMutation.isPending) {
