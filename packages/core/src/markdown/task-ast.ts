@@ -65,14 +65,34 @@ export interface TaskEntry extends TaskSnapshot {
   parent: BlockParent
 }
 
+/** One heading a document-level block sits under. */
+interface Section {
+  level: number
+  label: string
+}
+
+/** The labels of the open sections, outermost first; an empty heading labels nothing. */
+function sectionLabels(sections: readonly Section[]): string[] {
+  return sections.map((section) => section.label).filter((label) => label !== '')
+}
+
 export function getRoundTasks(document: MarkdownDocument): TaskEntry[] {
   const breadcrumbsOf = new DefaultMap<MarkdownNode, readonly string[]>(() => [])
   const entries: TaskEntry[] = []
+  // The headings above the current document-level block, like an outline.
+  const sections: Section[] = []
   for (const { node, parent, path } of walkMarkdownAst(document)) {
     if (parent === undefined) {
       continue
     }
-    const inherited = breadcrumbsOf.get(parent)
+    if (parent === document && node.type === 'heading') {
+      // A heading closes every section of its own level or deeper.
+      while ((sections.at(-1)?.level ?? 0) >= node.level) {
+        sections.pop()
+      }
+      sections.push({ level: node.level, label: node.value.trim() })
+    }
+    const inherited = parent === document ? sectionLabels(sections) : breadcrumbsOf.get(parent)
     const label = node.type === 'listItem' ? getFirstParagraphMarkdown(node) : ''
     breadcrumbsOf.set(node, label === '' ? inherited : [...inherited, label])
     if (isRoundTask(node) && isBlockParent(parent)) {
@@ -104,7 +124,7 @@ export interface ParsedTask {
   astPath: MarkdownAstPath
   /** The task's first paragraph, marker excluded. */
   markdown: string
-  /** Ancestor list items' first paragraphs, outermost first. */
+  /** The headings above the task, then its ancestor list items' first paragraphs, outermost first. */
   breadcrumbs: readonly string[]
   checked: boolean
   dueDate: string | null
@@ -128,7 +148,7 @@ export interface TaskLocator {
 
 export type InsertPosition =
   | { kind: 'documentEnd' }
-  /** The end of the task's parent list item; refused when the task is at the root. */
+  /** The end of the task's context: its parent list item, or at the root the end of its own list. */
   | { kind: 'contextEnd'; task: TaskLocator }
   | { kind: 'afterTask'; task: TaskLocator }
   /** After any block, for example the last item of the list under a heading. */
@@ -151,7 +171,7 @@ export type TaskEdit = TaskEditItem | TaskEditInsert
 
 /** A round task as it stands in a note body. */
 export interface TaskSnapshot extends TaskLocator {
-  /** Ancestor list items' first paragraphs, outermost first. */
+  /** The headings above the task, then its ancestor list items' first paragraphs, outermost first. */
   breadcrumbs: readonly string[]
 }
 
@@ -309,11 +329,11 @@ function resolveInsertPosition(
       return { kind: 'end', container: document }
     }
     case 'contextEnd': {
-      const { parent } = locateTask(before, at.task)
-      if (parent.type !== 'listItem') {
-        throw new TaskStaleError('task no longer has a parent list context')
+      const { node, parent } = locateTask(before, at.task)
+      if (parent.type === 'listItem') {
+        return { kind: 'end', container: parent }
       }
-      return { kind: 'end', container: parent }
+      return { kind: 'after', anchor: lastOfListRun(parent, node) }
     }
     case 'afterTask': {
       const { node } = locateTask(before, at.task)
@@ -332,6 +352,23 @@ function resolveInsertPosition(
       return { kind: 'after', anchor }
     }
   }
+}
+
+/** The character an item is written with; meowdown leaves it unset on a folded bullet, which it writes as `+`. */
+function markerOf(item: MarkdownListItem): string | undefined {
+  return item.marker ?? (item.kind === 'bullet' && item.collapsed ? '+' : undefined)
+}
+
+/** The last item of the list `item` belongs to: same marker, no other block between. */
+function lastOfListRun(parent: BlockParent, item: MarkdownListItem): MarkdownListItem {
+  let last = item
+  for (const block of parent.children.slice(parent.children.indexOf(item) + 1)) {
+    if (block.type !== 'listItem' || markerOf(block) !== markerOf(item)) {
+      break
+    }
+    last = block
+  }
+  return last
 }
 
 /**

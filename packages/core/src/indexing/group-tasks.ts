@@ -34,17 +34,28 @@ export interface TaskGroup {
 
 const PUNCTUATION_RE = /[\p{P}\p{S}]/gu
 
-function normalizedBreadcrumb(text: string): string {
-  return text.replaceAll(/\s+/g, '').replaceAll(PUNCTUATION_RE, '')
+/** What a label reduces to, spacing and punctuation removed, when it only says "these are tasks". */
+const GENERIC_TASK_WORDS: ReadonlySet<string> = new Set(['task', 'tasks', 'todo', 'todos'])
+
+/**
+ * A parent that only says "these are tasks": `Tasks`, `TODO:`, `To do`, …
+ * in any casing, spacing, or punctuation.
+ */
+export function isGenericTaskLabel(label: string): boolean {
+  const word = label.replaceAll(/\s+/g, '').replaceAll(PUNCTUATION_RE, '').toLowerCase()
+  return GENERIC_TASK_WORDS.has(word)
 }
 
-/** Trim breadcrumb labels and hide a lone generic Tasks/Todo parent. */
+/**
+ * Trim breadcrumb labels and hide the one chain that says nothing: a lone
+ * generic parent, whether the note's `## Tasks` section or a list item wrote
+ * it. A longer chain is shown as is, because every label in it, `Tasks`
+ * included, is a real level of the outline.
+ */
 export function visibleTaskBreadcrumbs(breadcrumbs: readonly string[]): string[] {
   const visible = breadcrumbs.map((text) => text.trim()).filter((text) => text.length > 0)
-  if (visible.length !== 1) {
-    return visible
-  }
-  return /^(?:task|todo)s?$/i.test(normalizedBreadcrumb(visible[0]!)) ? [] : visible
+  const lone = visible.length === 1 ? visible[0] : undefined
+  return lone !== undefined && isGenericTaskLabel(lone) ? [] : visible
 }
 
 /** One consecutive run of task rows sharing the same parent outline labels. */
@@ -59,7 +70,7 @@ function haveSameBreadcrumbs(left: readonly string[], right: readonly string[]):
   return left.length === right.length && left.every((part, index) => part === right[index])
 }
 
-/** Group consecutive task rows that share the same parent outline context. */
+/** Group consecutive task rows of one note that share the same visible context. */
 export function groupTaskContexts(tasks: readonly OpenTask[]): TaskContext[] {
   const contexts: {
     breadcrumbs: readonly string[]
@@ -69,14 +80,15 @@ export function groupTaskContexts(tasks: readonly OpenTask[]): TaskContext[] {
 
   for (const task of tasks) {
     const previous = contexts.at(-1)
-    if (previous !== undefined && haveSameBreadcrumbs(previous.breadcrumbs, task.breadcrumbs)) {
+    const visibleBreadcrumbs = visibleTaskBreadcrumbs(task.breadcrumbs)
+    if (
+      previous !== undefined &&
+      previous.tasks[0]?.notePath === task.notePath &&
+      haveSameBreadcrumbs(previous.visibleBreadcrumbs, visibleBreadcrumbs)
+    ) {
       previous.tasks.push(task)
     } else {
-      contexts.push({
-        breadcrumbs: task.breadcrumbs,
-        visibleBreadcrumbs: visibleTaskBreadcrumbs(task.breadcrumbs),
-        tasks: [task],
-      })
+      contexts.push({ breadcrumbs: task.breadcrumbs, visibleBreadcrumbs, tasks: [task] })
     }
   }
 

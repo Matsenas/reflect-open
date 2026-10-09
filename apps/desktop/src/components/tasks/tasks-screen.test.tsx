@@ -404,20 +404,73 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('hides a lone generic task breadcrumb', async () => {
+  it('shows the full heading chain and hides only a lone Tasks parent', async () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [2],
+        text: 'chore task',
+        noteTitle: 'Project',
+        breadcrumbs: ['Home', 'House chore'],
+      }),
+      task({
+        notePath: 'notes/p.md',
+        astPath: [5],
         text: 'project task',
         noteTitle: 'Project',
-        breadcrumbs: ['Tasks:'],
+        breadcrumbs: ['Tasks', 'Kitchen'],
+      }),
+      task({
+        notePath: 'notes/p.md',
+        astPath: [8],
+        text: 'lone task',
+        noteTitle: 'Project',
+        breadcrumbs: ['Tasks'],
       }),
     ])
     const view = await renderScreen()
 
-    await view.findByText('project task')
-    expect(view.queryByText('Tasks:')).toBeNull()
+    await view.findByRole('button', { name: 'Home → House chore' })
+    await view.findByRole('button', { name: 'Tasks → Kitchen' })
+    await view.findByText('lone task')
+    expect(view.queryByRole('button', { name: 'Tasks', exact: true })).toBeNull()
+    await view.unmount()
+  })
+
+  it('selects a heading context only within its source note in date buckets', async () => {
+    getOpenTasks.mockResolvedValue([
+      task({
+        notePath: 'notes/a.md',
+        astPath: [1],
+        text: 'tidy desk',
+        noteTitle: 'A',
+        dailyDate: '2026-06-14',
+        breadcrumbs: ['House chore'],
+      }),
+      task({
+        notePath: 'notes/a.md',
+        astPath: [2],
+        text: 'clean kitchen',
+        noteTitle: 'A',
+        dailyDate: '2026-06-14',
+        breadcrumbs: ['House chore'],
+      }),
+      task({
+        notePath: 'notes/b.md',
+        astPath: [1],
+        text: 'water plants',
+        noteTitle: 'B',
+        dailyDate: '2026-06-14',
+        breadcrumbs: ['House chore'],
+      }),
+    ])
+    const view = await renderScreen()
+
+    await view.findByText('water plants')
+    const contexts = view.getAllByRole('button', { name: 'House chore', exact: true })
+    expect(contexts).toHaveLength(2)
+    await userEvent.click(contexts[0]!)
+    await view.findByRole('button', { name: 'Convert to bullet 2' })
     await view.unmount()
   })
 
