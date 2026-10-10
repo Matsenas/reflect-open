@@ -25,7 +25,7 @@ use tauri::State;
 
 use crate::conflict::ladder::{self, ConflictInput};
 use crate::conflict::shadow::{content_hash, ShadowStore};
-use crate::conflict::{archive, markers, ConflictSide, Resolution};
+use crate::conflict::{archive, markers, own_writes, ConflictSide, Resolution};
 use crate::error::{AppError, AppResult};
 use crate::fs::GraphState;
 
@@ -323,6 +323,10 @@ struct FileResolution {
     final_content: String,
     changed: bool,
     marked: bool,
+    /// Whether the result is content every device converges on, and so the
+    /// new shadow base. False for a self-conflict: the kept file is this
+    /// device's latest local save, which no other device may have seen yet.
+    advances_base: bool,
 }
 
 /// Fold a note's unresolved versions through the ladder, oldest first.
@@ -340,6 +344,19 @@ fn resolve_file(
     let original = fs::read_to_string(&abs)
         .map_err(|err| AppError::io(format!("unreadable conflicted note {rel}: {err}")))?;
     let sides = archived_sides(root, rel, &original, file_modified_ms, versions)?;
+
+    // A conflict this device had with itself (every side is one of its own
+    // recent saves): the current file is the newest save and already holds
+    // the others' content, so keep it as is.
+    let others: Vec<&str> = sides.iter().map(|side| side.content.as_str()).collect();
+    if own_writes::is_self_conflict(&abs, &original, &others) {
+        return Ok(FileResolution {
+            final_content: original,
+            changed: false,
+            marked: false,
+            advances_base: false,
+        });
+    }
 
     let base = shadow.base(rel);
     let mut current = ConflictSide {
@@ -392,6 +409,7 @@ fn resolve_file(
         changed: current.content != original,
         final_content: current.content,
         marked,
+        advances_base: true,
     })
 }
 
@@ -420,6 +438,7 @@ fn resolve_many(
             changed: newest.content != original,
             marked: markers::contains_conflict_markers(&newest.content),
             final_content: newest.content.clone(),
+            advances_base: true,
         });
     }
 
@@ -454,6 +473,7 @@ fn resolve_many(
             changed: folded.content != original,
             final_content: folded.content,
             marked: false,
+            advances_base: true,
         });
     }
 
@@ -464,6 +484,7 @@ fn resolve_many(
         changed: content != original,
         final_content: content,
         marked: true,
+        advances_base: true,
     })
 }
 
@@ -546,8 +567,10 @@ fn apply_file_resolution(
         outcome.needs_review.push(rel.to_string());
     } else {
         // Both devices converge on the resolved content — it is the new base.
-        if let Err(err) = shadow.record(rel, &resolution.final_content) {
-            tracing::warn!(path = rel, ?err, "failed to advance shadow base");
+        if resolution.advances_base {
+            if let Err(err) = shadow.record(rel, &resolution.final_content) {
+                tracing::warn!(path = rel, ?err, "failed to advance shadow base");
+            }
         }
         outcome.auto_resolved += 1;
     }
@@ -1158,6 +1181,78 @@ mod tests {
         ));
         assert!(resolution.final_content.contains("Alex's iPhone"));
         assert!(resolution.final_content.contains(LOCAL_LABEL));
+    }
+
+    #[test]
+    fn a_self_conflict_keeps_the_latest_save_without_advancing_the_base() {
+        // The device saved twice while the first save was still uploading:
+        // both sides are its own writes, the current file the newest.
+        let root = graph();
+        let rel = "daily/2026-10-08.md";
+        let abs = root.path().join(rel);
+        let earlier = "# 2026-10-08\n\n- buy milk\n";
+        let latest = "# 2026-10-08\n\n- buy milk and eggs\n";
+        own_writes::record(&abs, earlier);
+        own_writes::record(&abs, latest);
+        write(root.path(), rel, latest);
+        let shadow = ShadowStore::new(root.path());
+        shadow.record(rel, "# 2026-10-08\n").unwrap();
+
+        let resolution = resolve_file(
+            root.path(),
+            rel,
+            2_000,
+            vec![fake_version(root.path(), "self.md", earlier, 1_000, "Mac")],
+            &shadow,
+        )
+        .unwrap();
+
+        assert!(!resolution.changed);
+        assert!(!resolution.marked);
+        assert!(!resolution.advances_base);
+        assert_eq!(resolution.final_content, latest);
+        // Archive-first still holds: both versions are kept on disk.
+        let archived = root
+            .path()
+            .join(".reflect/conflict-archive/daily/2026-10-08.md");
+        assert_eq!(fs::read_dir(archived).unwrap().count(), 2);
+
+        let mut outcome = SweepOutcome::default();
+        apply_file_resolution(root.path(), rel, resolution, &shadow, &mut outcome);
+        assert_eq!(outcome.auto_resolved, 1);
+        assert_eq!(shadow.base(rel).as_deref(), Some("# 2026-10-08\n"));
+    }
+
+    #[test]
+    fn a_draft_conflict_from_another_writer_is_marked_not_duplicated() {
+        // Same shape, but nothing proves both sides are this device's saves
+        // (another device, or writes from before a restart): the extended
+        // line must not be unioned next to its draft.
+        let root = graph();
+        let rel = "daily/2026-10-09.md";
+        write(root.path(), rel, "# 2026-10-09\n\n- buy milk and eggs\n");
+        let shadow = ShadowStore::new(root.path());
+
+        let resolution = resolve_file(
+            root.path(),
+            rel,
+            2_000,
+            vec![fake_version(
+                root.path(),
+                "draft.md",
+                "# 2026-10-09\n\n- buy milk\n",
+                1_000,
+                "Alex's iPhone",
+            )],
+            &shadow,
+        )
+        .unwrap();
+
+        assert!(resolution.marked);
+        assert!(resolution.advances_base);
+        assert!(markers::contains_conflict_markers(
+            &resolution.final_content
+        ));
     }
 
     fn fake_version(

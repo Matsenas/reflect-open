@@ -40,11 +40,21 @@ resolving the same conflict produce identical bytes and converge):
 4. **Both devices appended** — the daily-note case, and the most common one:
    both tails are kept, oldest first. Two devices creating the same day's
    note offline (iCloud leaves a `2026-07-04 2.md` behind) fold back into one
-   file the same way.
+   file the same way. A line on one side that only extends or cuts short a
+   line on the other (`- buy milk` / `- buy milk and eggs`) is one line
+   edited twice, not two appends, so it falls through to the next rule
+   instead of leaving the half-typed draft beside the finished line.
 5. **Genuinely overlapping edits** — the note keeps *both* versions between
    labeled conflict markers, opens protected, and shows a **Needs review**
    banner whose buttons name the devices ("Keep 'Alex's MacBook Pro'").
    Nothing is ever discarded silently.
+
+A conflict a device has **with itself** never reaches the ladder. iCloud can
+fork a note when a save replaces the file while the previous save is still
+uploading; when the current file is exactly the app's latest write and every
+conflict version is one of its earlier writes (tracked in memory for the
+running process), the current file is kept as is. That result is not a new
+shadow base, since other devices may not have seen it yet.
 
 Before any resolution is written, every involved version is archived under
 `.reflect/conflict-archive/<note-path>/` (kept ~90 days / 20 versions per
