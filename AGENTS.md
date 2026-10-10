@@ -347,6 +347,9 @@ workflow above wherever they conflict.
   back to upstream releases.
 - **Offer general improvements upstream.** Every accepted upstream PR shrinks
   the fork. Editor behavior may belong in the Meowdown repo instead.
+- **Record every fork change in [FORK.md](FORK.md)**, in the PR that makes
+  it: its kind (general improvement, fork-only feature, or fork identity and
+  config) and its upstream status.
 - Keep fork-specific notes in this section, at the end of the file, so
   upstream edits to `AGENTS.md` merge cleanly.
 
