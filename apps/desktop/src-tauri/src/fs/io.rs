@@ -269,10 +269,14 @@ fn set_local_only_xattrs(dir: &Path) -> Vec<String> {
     errors
 }
 
-/// Atomically write `contents` to `target` inside the graph at `root`.
+/// Atomically write `contents` to `target` inside the graph at `root`, and
+/// remember it as this process's latest write to the note (the conflict
+/// sweep's self-conflict proof, [`crate::conflict::own_writes`]).
 /// Returns the persisted file's mtime (see [`atomic_write_bytes`]).
 pub(super) fn atomic_write(root: &Path, target: &Path, contents: &str) -> AppResult<Option<u64>> {
-    atomic_write_bytes(root, target, contents.as_bytes())
+    let modified_ms = atomic_write_bytes(root, target, contents.as_bytes())?;
+    crate::conflict::own_writes::record(target, contents);
+    Ok(modified_ms)
 }
 
 /// Result of an atomic create-if-absent attempt.
@@ -299,9 +303,12 @@ pub(super) fn atomic_create(
     }
     let temp = stage_bytes(root, target, contents.as_bytes())?;
     match temp.persist_noclobber(target) {
-        Ok(file) => Ok(AtomicCreateOutcome::Created(
-            file.metadata().ok().as_ref().and_then(modified_ms),
-        )),
+        Ok(file) => {
+            crate::conflict::own_writes::record(target, contents);
+            Ok(AtomicCreateOutcome::Created(
+                file.metadata().ok().as_ref().and_then(modified_ms),
+            ))
+        }
         Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
             Ok(AtomicCreateOutcome::Collision)
         }
