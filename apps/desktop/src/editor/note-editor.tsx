@@ -1,25 +1,24 @@
-import { lightboxItemFromXPostMedia } from '@/editor/x-post-media-lightbox-item.ts'
+import { EditorInputTraits } from '@/editor/editor-input-traits.tsx'
+import { FormattingToolbarBridge } from '@/editor/formatting-toolbar-bridge.tsx'
+import { MediaLightbox } from '@/editor/media-lightbox.tsx'
+import { isOpenableExternalUrl } from '@/editor/open-external-link.ts'
+import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
+import { lightboxItemFromXPostMedia } from '@/editor/x-post-media-lightbox-item.ts'
 import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
-import {
-  useCallback,
-  useImperativeHandle,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-  type Ref,
-} from 'react'
-import { errorMessage, type TimeFormat } from '@reflect/core'
+import { isDeepLinkUrl } from '@/lib/deep-links/parse.ts'
+import { useFollowDeepLink } from '@/lib/deep-links/use-follow-deep-link.ts'
+import { openUrlSync } from '@/lib/open-url.ts'
+import { isTouchEditorSurface } from '@/lib/platform-surface.ts'
+import { cn } from '@/lib/utils.ts'
 import type {
   AcceptPendingReplacementOptions,
   ExitBoundaryHandler,
   FileClickHandler,
   FileInfoResolver,
-  ImageUrlResolver,
   FileLinkResolver,
   ImageClickHandler,
+  ImageUrlResolver,
   LinkPreviewResolver,
   MarkMode,
   SearchStatus,
@@ -30,7 +29,7 @@ import type {
   YouTubeVideoClickHandler,
 } from '@meowdown/core'
 import {
-  MeowdownEditor,
+  MarkdownEditor,
   useLightbox,
   WikilinkHoverCard,
   type EditorHandle,
@@ -40,16 +39,17 @@ import {
   type TagSearchHandler,
   type WikilinkSearchHandler,
 } from '@meowdown/react'
-import { EditorInputTraits } from '@/editor/editor-input-traits.tsx'
-import { FormattingToolbarBridge } from '@/editor/formatting-toolbar-bridge.tsx'
-import { MediaLightbox } from '@/editor/media-lightbox.tsx'
-import { isOpenableExternalUrl } from '@/editor/open-external-link.ts'
-import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
-import { isTouchEditorSurface } from '@/lib/platform-surface.ts'
-import { isDeepLinkUrl } from '@/lib/deep-links/parse.ts'
-import { useFollowDeepLink } from '@/lib/deep-links/use-follow-deep-link.ts'
-import { openUrlSync } from '@/lib/open-url.ts'
-import { cn } from '@/lib/utils.ts'
+import { errorMessage, type TimeFormat } from '@reflect/core'
+import {
+  useCallback,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+  type Ref,
+} from 'react'
 
 type WikilinkHoverRenderer = (hit: WikilinkHoverHit) => ReactNode | Promise<ReactNode>
 
@@ -58,7 +58,7 @@ const YOUTUBE_RELAY_URL = 'https://youtube-relay-reflect.vercel.app/'
 
 /**
  * Reflect's note editor: a thin wrapper over `@meowdown/react`'s
- * `<MeowdownEditor>`. meowdown owns the editing surface (wiki-link clicks,
+ * `<MarkdownEditor>`. meowdown owns the editing surface (wiki-link clicks,
  * image rendering/persistence, headings, placeholder, the `[[` menu); this
  * wrapper only adapts Reflect's prop shapes and exposes the imperative handle
  * the document pipeline binds to.
@@ -77,7 +77,7 @@ export interface NoteEditorHandle {
    * Markdown. If reconciliation changes the document, `onChange` may run
    * synchronously before this method returns.
    */
-  getMarkdown(): string
+  getMarkdown(this: void): string
   /** Replace the document (note switch / external reload). */
   setMarkdown(markdown: string): void
   /**
@@ -88,8 +88,8 @@ export interface NoteEditorHandle {
    * this fires `onChange`, so the insertion flows into the save pipeline like
    * typing. Empty/whitespace-only markdown is a no-op.
    */
-  insertMarkdown(markdown: string): void
-  focus(): void
+  insertMarkdown(this: void, markdown: string): void
+  focus(this: void): void
   /**
    * Move the caret to a document edge and scroll it into view. Used for
    * cross-note arrow navigation in the daily stream (jump to the end of the
@@ -109,9 +109,9 @@ export interface NoteEditorHandle {
   /** Clear the staged replacement without touching the document. */
   discardPendingReplacement(): void
   /** Select the next find match, wrapping at the document end. */
-  findNext(): void
+  findNext(this: void): void
   /** Select the previous find match, wrapping at the document start. */
-  findPrevious(): void
+  findPrevious(this: void): void
 }
 
 interface NoteEditorProps {
@@ -119,6 +119,13 @@ interface NoteEditorProps {
   initialContent: string
   /** Called with the current markdown whenever the user edits the document. */
   onChange?: (markdown: string) => void
+  /**
+   * Edit one paragraph of inline Markdown (the task editors). A typed block
+   * prefix (`+ [ ] `, `# `, `- `, a fence) stays text, pasted blocks flatten
+   * into the paragraph, and `onChange` reports paragraph Markdown. Off by
+   * default: a note is a whole document.
+   */
+  singleParagraph?: boolean
   /** How markdown syntax characters are shown. */
   markMode?: MarkMode
   /** Whether the browser underlines misspelled words (default on). */
@@ -135,6 +142,13 @@ interface NoteEditorProps {
    * (the `editorBulletAfterHeading` setting). Off by default.
    */
   bulletAfterHeading?: boolean
+  /**
+   * Whether Backspace in an empty first paragraph deletes that paragraph, so
+   * the rest of the note moves up one line. Off by default. Daily notes opt
+   * in on every surface: the day's heading sits outside the editor, so nothing
+   * else can remove a leading empty line.
+   */
+  backspaceDeletesEmptyFirstBlock?: boolean
   /**
    * Whether to show meowdown's per-block gutter handle: a grip to drag-reorder
    * blocks and a "+" to insert a paragraph below. Off by default. The main note
@@ -246,12 +260,14 @@ interface NoteEditorProps {
 
 export function NoteEditor({
   initialContent,
+  singleParagraph = false,
   onChange,
   markMode = 'hide',
   spellCheck = true,
   smoothCaretAnimation = true,
   timeFormat = '12h',
   bulletAfterHeading = false,
+  backspaceDeletesEmptyFirstBlock = false,
   blockHandle = false,
   resolveImageUrl,
   resolveWikiEmbed,
@@ -472,13 +488,14 @@ export function NoteEditor({
 
   return (
     <>
-      <MeowdownEditor
+      <MarkdownEditor
         resolveXPost={resolveXPost}
         resolveYouTubeVideo={resolveYouTubeVideo}
         mediaUrlProtocols={X_MEDIA_URL_PROTOCOLS}
         handleRef={innerRef}
         mode={markMode}
         initialMarkdown={initialContent}
+        singleParagraph={singleParagraph}
         // On the touch surface spellcheck is pinned off regardless of the
         // setting: iOS derives the keyboard's smart-quotes/smart-dashes traits
         // from it at focus time, and smart punctuation corrupts markdown
@@ -492,6 +509,7 @@ export function NoteEditor({
         timeFormat={timeFormat === '24h' ? '24' : '12'}
         caretGlide={smoothCaretAnimation}
         bulletAfterHeading={bulletAfterHeading}
+        backspaceDeletesEmptyFirstBlock={backspaceDeletesEmptyFirstBlock}
         // Pinned off on the touch surface regardless of the caller: the grip is
         // revealed on hover and drag-reorders blocks with a pointer, neither of
         // which a touch webview can express. Turning it off also drops the drop
@@ -532,7 +550,7 @@ export function NoteEditor({
           <WikilinkHoverCard>{renderWikilinkHoverCard}</WikilinkHoverCard>
         ) : null}
         {children}
-      </MeowdownEditor>
+      </MarkdownEditor>
       <MediaLightbox lightbox={lightbox} onOpenImage={openLightboxImage} />
     </>
   )

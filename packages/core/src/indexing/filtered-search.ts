@@ -1,11 +1,11 @@
 import type { Database } from '@reflect/db'
 import { sql, type RawBuilder, type Selectable } from 'kysely'
+import { displayNoteTitle } from '../markdown/note-title.ts'
 import { db } from './db.ts'
 import { literalSearchQuery, type ParsedSearchQuery } from './filter-query.ts'
 import { resolveWikiTarget } from './queries.ts'
-import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { buildFtsMatch, buildTitleMatchSql } from './search-query.ts'
-import { displayNoteTitle } from '../markdown/note-title.ts'
+import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { highlightTitle } from './title-highlight.ts'
 
 /**
@@ -137,14 +137,15 @@ export async function searchWithFilters(
       .distinct()
 
     for (const tag of remainingTags) {
-      taggedQuery = taggedQuery.where(({ exists, selectFrom }) =>
-        exists(
-          selectFrom('tags as filterTags')
+      taggedQuery = taggedQuery.where((eb) => {
+        return eb.exists(
+          eb
+            .selectFrom('tags as filterTags')
             .select(sql<number>`1`.as('one'))
             .whereRef('filterTags.notePath', '=', 'notes.path')
             .where('filterTags.tagKey', '=', tag),
-        ),
-      )
+        )
+      })
     }
     if (filters.dailyOnly) {
       taggedQuery = taggedQuery.where('notes.dailyDate', 'is not', null)
@@ -157,25 +158,27 @@ export async function searchWithFilters(
     }
     if (linksToPath !== null) {
       const target = linksToPath
-      taggedQuery = taggedQuery.where(({ exists, selectFrom }) =>
-        exists(
-          selectFrom('backlinks')
+      taggedQuery = taggedQuery.where((eb) => {
+        return eb.exists(
+          eb
+            .selectFrom('backlinks')
             .select(sql<number>`1`.as('one'))
             .whereRef('backlinks.sourcePath', '=', 'notes.path')
             .where('backlinks.targetPath', '=', target),
-        ),
-      )
+        )
+      })
     }
     if (linkedFromPath !== null) {
       const source = linkedFromPath
-      taggedQuery = taggedQuery.where(({ exists, selectFrom }) =>
-        exists(
-          selectFrom('backlinks')
+      taggedQuery = taggedQuery.where((eb) => {
+        return eb.exists(
+          eb
+            .selectFrom('backlinks')
             .select(sql<number>`1`.as('one'))
             .whereRef('backlinks.targetPath', '=', 'notes.path')
             .where('backlinks.sourcePath', '=', source),
-        ),
-      )
+        )
+      })
     }
     if (filters.updatedAfterMs !== null) {
       taggedQuery = taggedQuery.where('notes.mtime', '>=', filters.updatedAfterMs)
@@ -206,14 +209,15 @@ export async function searchWithFilters(
   // `tag_key` — folded in JS at index time, since SQLite's lower() is
   // ASCII-only and would miss non-ASCII casings.
   for (const tag of filters.tags) {
-    query = query.where(({ exists, selectFrom }) =>
-      exists(
-        selectFrom('tags')
+    query = query.where((eb) => {
+      return eb.exists(
+        eb
+          .selectFrom('tags')
           .select(sql<number>`1`.as('one'))
           .whereRef('tags.notePath', '=', 'notes.path')
           .where('tags.tagKey', '=', tag),
-      ),
-    )
+      )
+    })
   }
   if (filters.dailyOnly) {
     query = query.where('notes.dailyDate', 'is not', null)
@@ -226,25 +230,27 @@ export async function searchWithFilters(
   }
   if (linksToPath !== null) {
     const target = linksToPath
-    query = query.where(({ exists, selectFrom }) =>
-      exists(
-        selectFrom('backlinks')
+    query = query.where((eb) => {
+      return eb.exists(
+        eb
+          .selectFrom('backlinks')
           .select(sql<number>`1`.as('one'))
           .whereRef('backlinks.sourcePath', '=', 'notes.path')
           .where('backlinks.targetPath', '=', target),
-      ),
-    )
+      )
+    })
   }
   if (linkedFromPath !== null) {
     const source = linkedFromPath
-    query = query.where(({ exists, selectFrom }) =>
-      exists(
-        selectFrom('backlinks')
+    query = query.where((eb) => {
+      return eb.exists(
+        eb
+          .selectFrom('backlinks')
           .select(sql<number>`1`.as('one'))
           .whereRef('backlinks.targetPath', '=', 'notes.path')
           .where('backlinks.sourcePath', '=', source),
-      ),
-    )
+      )
+    })
   }
   if (filters.updatedAfterMs !== null) {
     query = query.where('notes.mtime', '>=', filters.updatedAfterMs)
