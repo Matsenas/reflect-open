@@ -17,12 +17,14 @@ const { getBacklinksWithContext, getBacklinksPage } = vi.hoisted(() => {
   return { getBacklinksWithContext, getBacklinksPage }
 })
 const resolveOrCreateNoteWithTitle = vi.hoisted(() => vi.fn())
+const resolveExistingMarkdownTarget = vi.hoisted(() => vi.fn())
 const openRouteInNewWindow = vi.hoisted(() => vi.fn<() => Promise<boolean>>())
 vi.mock('@reflect/core', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@reflect/core')>()),
   hasBridge: () => true,
   getBacklinksWithContext: getBacklinksPage,
   resolveOrCreateNoteWithTitle,
+  resolveExistingMarkdownTarget,
 }))
 vi.mock('@/providers/graph-provider.tsx', () => ({
   useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 1 } }),
@@ -58,6 +60,7 @@ beforeEach(() => {
   getBacklinksWithContext.mockReset()
   getBacklinksPage.mockClear()
   resolveOrCreateNoteWithTitle.mockReset()
+  resolveExistingMarkdownTarget.mockReset()
   openRouteInNewWindow.mockReset().mockResolvedValue(true)
 })
 
@@ -115,6 +118,37 @@ describe('BacklinksPanel', () => {
 
     await chip.click()
     await expect.element(view.getByTestId('route')).toMatchTextContent('notes/roadmap.md')
+    await view.unmount()
+  })
+
+  it('opens a relative Markdown link in a snippet from its source note', async () => {
+    getBacklinksWithContext.mockResolvedValue([
+      {
+        sourcePath: 'projects/TASKS.md',
+        sourceTitle: 'Project Tasks',
+        snippet: '- [[Roadmap]]\n  - [plan](./roadmap/plan.md)',
+        posFrom: 0,
+        tasks: [],
+      },
+    ])
+    resolveExistingMarkdownTarget.mockResolvedValue({
+      kind: 'resolved',
+      path: 'projects/roadmap/plan.md',
+    })
+    const view = await renderPanel('notes/roadmap.md')
+
+    await view.getByRole('link', { name: 'plan' }).click()
+
+    await vi.waitFor(() =>
+      expect(resolveExistingMarkdownTarget).toHaveBeenCalledWith(
+        './roadmap/plan.md',
+        'projects/TASKS.md',
+        1,
+      ),
+    )
+    await expect
+      .element(view.getByTestId('route'))
+      .toMatchTextContent('{"kind":"note","path":"projects/roadmap/plan.md"}')
     await view.unmount()
   })
 
