@@ -1,24 +1,13 @@
 import { useState, type ReactElement } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
-import {
-  IAP_PRODUCT_IDS,
-  iapGetProducts,
-  iapPurchase,
-  presentOfferCodeRedeemSheet,
-  syncAppStore,
-} from '@reflect/core'
+import { IAP_PRODUCT_IDS } from '@reflect/core'
 import appIcon from '@/assets/app-icon.png'
 import { Button } from '@/components/ui/button.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
-import { openUrlSync } from '@/lib/open-url.ts'
 import { mutationKeys, mutationScopeIds, queryKeys } from '@/lib/query-client.ts'
 import { cn } from '@/lib/utils.ts'
 import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '@/mobile/legal-urls.ts'
-import {
-  refetchActiveSubscription,
-  useActiveSubscription,
-} from '@/mobile/use-active-subscription.ts'
 import { ClassicMemberDrawer } from '@/mobile/classic-member-drawer.tsx'
 import { ClassicSignInProgress } from '@/mobile/classic-sign-in-progress.tsx'
 import {
@@ -26,6 +15,9 @@ import {
   useClassicAccess,
   useClassicSignIn,
 } from '@/mobile/use-classic-access.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
+import { useIapRestoreRedeem } from '@/mobile/use-iap-restore-redeem.ts'
+import { useAppServices } from '@/services/services-provider.tsx'
 
 type PurchasePlan = 'monthly' | 'yearly'
 
@@ -38,14 +30,14 @@ interface PurchaseVariables {
 const CLAIM_FREE_YEAR_URL = 'https://reflect.app/claim-reflect-open'
 
 export function PaywallScreen(): ReactElement {
-  const subscription = useActiveSubscription()
-  const queryClient = useQueryClient()
+  const { paywall } = useMobileServices()
+  const { opener } = useAppServices()
   const [selectedPlan, setSelectedPlan] = useState<PurchasePlan>('yearly')
   const [classicDrawerOpen, setClassicDrawerOpen] = useState(false)
 
   const products = useQuery({
     queryKey: queryKeys.iap.products,
-    queryFn: () => iapGetProducts([IAP_PRODUCT_IDS.yearly, IAP_PRODUCT_IDS.monthly]),
+    queryFn: () => paywall.products(),
   })
   const yearly =
     products.data?.find((product) => product.productId === IAP_PRODUCT_IDS.yearly) ?? null
@@ -62,25 +54,10 @@ export function PaywallScreen(): ReactElement {
   const purchaseMutation = useMutation({
     mutationKey: mutationKeys.iap.purchase,
     scope: { id: mutationScopeIds.iapAction },
-    mutationFn: (variables: PurchaseVariables) => iapPurchase(variables.productId),
-    onSuccess: subscription.invalidate,
+    mutationFn: (variables: PurchaseVariables) => paywall.purchase(variables.productId),
   })
-  const restoreMutation = useMutation({
-    mutationKey: mutationKeys.iap.restore,
-    scope: { id: mutationScopeIds.iapAction },
-    mutationFn: async () => {
-      await syncAppStore()
-      return await refetchActiveSubscription(queryClient)
-    },
-  })
-  const redeemMutation = useMutation({
-    mutationKey: mutationKeys.iap.redeem,
-    scope: { id: mutationScopeIds.iapAction },
-    mutationFn: presentOfferCodeRedeemSheet,
-    // A redeemed code normally arrives as a purchaseUpdated event; the
-    // refetch here covers a sheet that closed without emitting one.
-    onSuccess: subscription.invalidate,
-  })
+  const iap = useIapRestoreRedeem()
+  const { restoreMutation, redeemMutation, restoreFeedback, redeemFeedback } = iap
   const classicAccess = useClassicAccess()
   const classicSignIn = useClassicSignIn()
   const classicMessage = classicAccessMessage(classicAccess)
@@ -91,14 +68,6 @@ export function PaywallScreen(): ReactElement {
     classicSignIn.mutation.isPending
   const purchasingPlan = purchaseMutation.isPending
     ? (purchaseMutation.variables?.plan ?? null)
-    : null
-  const restoreFeedback = restoreMutation.isError
-    ? 'Restore failed. Check your connection and try again.'
-    : restoreMutation.data === null
-      ? 'No previous purchase found for this Apple account.'
-      : null
-  const redeemFeedback = redeemMutation.isError
-    ? 'Could not open the redemption sheet. Try again.'
     : null
 
   const subscribe = () => {
@@ -112,16 +81,14 @@ export function PaywallScreen(): ReactElement {
 
   const restore = () => {
     purchaseMutation.reset()
-    redeemMutation.reset()
     classicSignIn.mutation.reset()
-    restoreMutation.mutate()
+    iap.restore()
   }
 
   const redeem = () => {
     purchaseMutation.reset()
-    restoreMutation.reset()
     classicSignIn.mutation.reset()
-    redeemMutation.mutate()
+    iap.redeem()
   }
 
   const verifyClassic = () => {
@@ -133,13 +100,7 @@ export function PaywallScreen(): ReactElement {
   }
 
   return (
-    <div
-      className="flex min-h-dvh w-screen overflow-auto bg-surface-app px-5 text-text"
-      style={{
-        paddingTop: 'max(env(safe-area-inset-top), 1.5rem)',
-        paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)',
-      }}
-    >
+    <div className="flex min-h-dvh w-screen overflow-auto bg-surface-app px-safe-offset-5 pt-safe-or-6 pb-safe-or-4 text-text">
       <div className="mx-auto flex w-full max-w-md flex-col gap-6 py-6">
         <header className="flex flex-col gap-4 pt-2">
           <img src={appIcon} alt="" draggable={false} className="size-11 rounded-xl" />
@@ -246,13 +207,17 @@ export function PaywallScreen(): ReactElement {
         </div>
 
         <footer className="mt-auto flex justify-center gap-4 text-[13px] text-text-muted">
-          <button type="button" className="underline" onClick={() => openUrlSync(TERMS_OF_USE_URL)}>
+          <button
+            type="button"
+            className="underline"
+            onClick={() => opener.openUrlSync(TERMS_OF_USE_URL)}
+          >
             Terms of Use
           </button>
           <button
             type="button"
             className="underline"
-            onClick={() => openUrlSync(PRIVACY_POLICY_URL)}
+            onClick={() => opener.openUrlSync(PRIVACY_POLICY_URL)}
           >
             Privacy Policy
           </button>
@@ -264,7 +229,7 @@ export function PaywallScreen(): ReactElement {
         onSignIn={verifyClassic}
         onWebClaim={() => {
           setClassicDrawerOpen(false)
-          openUrlSync(CLAIM_FREE_YEAR_URL)
+          opener.openUrlSync(CLAIM_FREE_YEAR_URL)
         }}
       />
       <ClassicSignInProgress signIn={classicSignIn} />

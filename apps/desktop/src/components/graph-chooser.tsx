@@ -1,6 +1,5 @@
-import { useId, useState, type ReactElement, type ReactNode } from 'react'
+import { useCallback, useId, useState, type ReactElement, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { icloudStatus } from '@reflect/core'
 import { Cloud, Folder, FolderPlus } from 'lucide-react'
 import { getIsComposing } from '@meowdown/core'
 import { InlineAlert } from '@/components/inline-alert.tsx'
@@ -8,18 +7,19 @@ import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
+import { useAsyncAction } from '@/hooks/use-async-action.ts'
 import { useGraphColors } from '@/hooks/use-graph-colors.ts'
-import { cleanGraphName, graphNameFromRoot, isGraphNameTaken } from '@/lib/graph-names.ts'
+import {
+  DEFAULT_GRAPH_NAME,
+  cleanGraphName,
+  graphNameFromRoot,
+  isGraphNameTaken,
+} from '@reflect/core'
 import { queryKeys } from '@/lib/query-client.ts'
 import { graphColorCss } from '@/lib/graph-colors.ts'
 import { cn } from '@/lib/utils.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
-
-/** iCloud is a real option only in the macOS shell. */
-function isIcloudCapablePlatform(): boolean {
-  return import.meta.env.TAURI_ENV_PLATFORM === 'darwin'
-}
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 /**
  * First-run / no-graph screen (Plan 21 UX pass). One decision, stated
@@ -35,7 +35,9 @@ function isIcloudCapablePlatform(): boolean {
 export function GraphChooser(): ReactElement {
   const { recents, error, pickAndOpen, openRecent, createAt, forget } = useGraph()
   const { colorFor } = useGraphColors()
-  const icloudCapable = isIcloudCapablePlatform()
+  const { platform } = useCoreServices()
+  // iCloud is a real option only in the macOS shell.
+  const icloudCapable = platform.buildPlatform === 'darwin'
 
   return (
     <ChooserShell>
@@ -200,44 +202,57 @@ function IcloudCard({
   createAt: (root: string) => Promise<boolean>
 }): ReactElement {
   const [typedName, setTypedName] = useState<string | null>(null)
-  const [busy, setBusy] = useState<IcloudBusy>(null)
+  const [target, setTarget] = useState<IcloudBusy>(null)
+  const action = useAsyncAction()
   const nameId = useId()
-  const bridgeReady = useBridgeReady()
+  const { icloudNative } = useCoreServices()
   const { data: status } = useQuery({
     queryKey: queryKeys.icloud.status,
-    queryFn: icloudStatus,
-    enabled: bridgeReady,
+    queryFn: () => icloudNative.status(),
   })
 
-  const pending = busy !== null
+  const pending = action.pending
+  const busy: IcloudBusy = pending ? target : null
   const available = status?.available === true
   const existing = status?.existingGraphRoots ?? []
   // "Notes" pre-fills only the fresh-container form. Next to an existing
   // list the row starts empty — a prefilled default would collide with the
   // usual first graph ("Notes") and paint the screen invalid before the
   // user touched it.
-  const name = typedName ?? (existing.length > 0 ? '' : 'Notes')
+  const name = typedName ?? (existing.length > 0 ? '' : DEFAULT_GRAPH_NAME)
   const cleanName = cleanGraphName(name)
   // macOS folder names are case-insensitive — a same-named create would
   // land inside the existing graph instead of next to it.
   const nameTaken = cleanName !== null && isGraphNameTaken(cleanName, existing)
 
-  async function create(): Promise<void> {
-    if (status?.documentsRoot == null || cleanName === null || nameTaken) {
+  const { run } = action
+  const start = useCallback(
+    (nextTarget: string, work: () => Promise<boolean>): void => {
+      // setTarget runs inside the action, so a call the guard drops never
+      // moves the spinner off the control that is actually running.
+      void run(async () => {
+        setTarget(nextTarget)
+        await work()
+      })
+    },
+    [run],
+  )
+
+  const documentsRoot = status?.documentsRoot ?? null
+  const create = useCallback((): void => {
+    if (documentsRoot === null || cleanName === null || nameTaken) {
       return
     }
-    setBusy('create')
-    try {
-      await createAt(`${status.documentsRoot}/${cleanName}`)
-    } finally {
-      setBusy(null)
-    }
-  }
+    const root = `${documentsRoot}/${cleanName}`
+    start('create', () => createAt(root))
+  }, [documentsRoot, cleanName, nameTaken, start, createAt])
 
-  function open(root: string): void {
-    setBusy(root)
-    void openRecent(root).finally(() => setBusy(null))
-  }
+  const open = useCallback(
+    (root: string): void => {
+      start(root, () => openRecent(root))
+    },
+    [start, openRecent],
+  )
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-sm">
@@ -291,7 +306,7 @@ function IcloudCard({
                   return
                 }
                 if (event.key === 'Enter') {
-                  void create()
+                  create()
                 }
               }}
             />
@@ -300,7 +315,7 @@ function IcloudCard({
               variant="outline"
               className="shrink-0"
               disabled={pending || cleanName === null || nameTaken}
-              onClick={() => void create()}
+              onClick={() => create()}
             >
               {busy === 'create' ? <Spinner /> : null}
               Create
@@ -326,7 +341,7 @@ function IcloudCard({
                   return
                 }
                 if (event.key === 'Enter') {
-                  void create()
+                  create()
                 }
               }}
             />
@@ -335,13 +350,14 @@ function IcloudCard({
             type="button"
             className="w-full"
             disabled={!available || pending || cleanName === null}
-            onClick={() => void create()}
+            onClick={() => create()}
           >
             {busy === 'create' ? <Spinner /> : <Cloud aria-hidden strokeWidth={1.75} />}
             {busy === 'create' ? 'Setting up…' : 'Create'}
           </Button>
         </div>
       )}
+      {action.error !== null ? <InlineAlert tone="error">{action.error}</InlineAlert> : null}
     </section>
   )
 }

@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { Check, CircleAlert, Dot } from 'lucide-react'
 import appIcon from '@/assets/app-icon.png'
 import { Button } from '@/components/ui/button.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
-import { queryKeys } from '@/lib/query-client.ts'
-import { formatClassicDate, type ClassicSignIn } from '@/mobile/use-classic-access.ts'
+import type { ClassicSignIn } from '@/mobile/use-classic-access.ts'
+import { type DateFormat, formatFullDate } from '@reflect/core'
+import { useCoreServices } from '@/services/services-provider.tsx'
+import { useDateFormat } from '@/hooks/use-date-format.ts'
 
 type StepState = 'done' | 'active' | 'pending' | 'failed'
 
@@ -23,7 +24,7 @@ function signedInLabel(email: string | null): string {
   return email === null ? 'Signed in to Reflect Classic' : `Signed in as ${email}`
 }
 
-function screenFor(signIn: ClassicSignIn): Screen | null {
+function screenFor(signIn: ClassicSignIn, dateFormat: DateFormat): Screen | null {
   const { mutation, checking } = signIn
   if (checking) {
     return {
@@ -53,7 +54,10 @@ function screenFor(signIn: ClassicSignIn): Screen | null {
       steps: [
         { state: 'done', label: signedInLabel(result.access.email) },
         { state: 'done', label: 'Reflect Classic subscription found' },
-        { state: 'done', label: `Free until ${formatClassicDate(result.access.expiresAt)}` },
+        {
+          state: 'done',
+          label: `Free until ${formatFullDate(new Date(result.access.expiresAt), dateFormat)}`,
+        },
       ],
     }
   }
@@ -88,13 +92,17 @@ function StepIcon({ state }: { state: StepState }): ReactElement {
  * while idle, while the sheet is open, or after a cancelled sheet.
  */
 export function ClassicSignInProgress({ signIn }: { signIn: ClassicSignIn }): ReactElement | null {
-  const queryClient = useQueryClient()
-  const screen = screenFor(signIn)
+  const { classicAccess: classic, logger } = useCoreServices()
+  const screen = screenFor(signIn, useDateFormat())
   if (screen === null) return null
   const { mutation } = signIn
 
   const done = async () => {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.classic.access })
+    try {
+      await classic.read()
+    } catch (error: unknown) {
+      logger.error('Reading the Reflect Classic access failed', error)
+    }
     mutation.reset()
   }
 
@@ -103,11 +111,7 @@ export function ClassicSignInProgress({ signIn }: { signIn: ClassicSignIn }): Re
       role="dialog"
       aria-modal
       aria-labelledby="classic-sign-in-title"
-      className="fixed inset-0 z-40 flex bg-surface-app px-5 text-text"
-      style={{
-        paddingTop: 'max(env(safe-area-inset-top), 1.5rem)',
-        paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)',
-      }}
+      className="fixed inset-0 z-40 flex bg-surface-app px-safe-offset-5 pt-safe-or-6 pb-safe-or-4 text-text"
     >
       <div className="mx-auto flex w-full max-w-md flex-col gap-6 py-6">
         <div className="mt-[20vh] flex flex-col gap-5">

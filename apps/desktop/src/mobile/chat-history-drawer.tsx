@@ -1,12 +1,12 @@
 import type { ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { formatDistanceToNow } from 'date-fns'
+import { formatTimeAgo } from '@reflect/utils'
 import { Check, Trash2 } from 'lucide-react'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { createChatConversationsQueryOptions } from '@/lib/query-options.ts'
 import { useChatSession } from '@/providers/chat-provider.tsx'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface ChatHistoryDrawerProps {
   open: boolean
@@ -22,14 +22,14 @@ interface ChatHistoryDrawerProps {
  */
 export function ChatHistoryDrawer({ open, onOpenChange }: ChatHistoryDrawerProps): ReactElement {
   const { graph, indexGeneration } = useGraph()
+  const { chatHistory } = useCoreServices()
   const { activeConversationId, openConversation, deleteConversation } = useChatSession()
 
-  const bridgeReady = useBridgeReady()
-  const enabled = bridgeReady && indexGeneration !== null
+  const enabled = indexGeneration !== null
   const { data: conversations } = useQuery({
     // The graph root is part of the key: conversations belong to one graph,
     // and a graph switch must never serve the previous graph's cached list.
-    ...createChatConversationsQueryOptions(graph?.root),
+    ...createChatConversationsQueryOptions(chatHistory, graph?.root),
     enabled: enabled && open,
   })
 
@@ -61,7 +61,7 @@ export function ChatHistoryDrawer({ open, onOpenChange }: ChatHistoryDrawerProps
                     >
                       <span className="min-w-0 flex-1 truncate text-sm">{conversation.title}</span>
                       <span className="shrink-0 text-xs text-text-muted">
-                        {formatDistanceToNow(conversation.updatedMs, { addSuffix: true })}
+                        {formatTimeAgo(conversation.updatedMs)}
                       </span>
                     </button>
                     {current ? (

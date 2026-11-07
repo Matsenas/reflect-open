@@ -1,12 +1,14 @@
-import { useState, type ReactElement } from 'react'
+import { useCallback, useState, useTransition, type ReactElement } from 'react'
 import { CloudOff, CloudUpload } from 'lucide-react'
 import { ShortcutKeys } from '@/components/shortcut-keys.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useNoteRowOverlay } from '@/hooks/note-row-overlay.ts'
 import { useGithubConnected } from '@/hooks/use-github-connected.ts'
 import { useNoteRow } from '@/hooks/use-note-row.ts'
-import { runGistPublish, runGistUnpublish } from '@/lib/note-gist.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { publishGistAndCopyLink } from '@/lib/clipboard-actions.ts'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
+
+type GistKind = 'publish' | 'unpublish'
 
 interface NoteGistActionProps {
   /** Graph-relative path of the note the action operates on. */
@@ -27,56 +29,48 @@ export function NoteGistAction({
   path,
   keybinding = null,
 }: NoteGistActionProps): ReactElement | null {
-  const { graph } = useGraph()
+  const services = useCoreServices()
+  const { gistPublish } = services
+  const app = useAppServices()
   const connected = useGithubConnected()
   const row = useNoteRow(path)
   // `row` already reflects a just-published or just-unpublished URL (the
   // optimistic overlay flows through `useNoteRow`); the raw overlay tells us
   // that a publish is still catching up, which keeps the action in the
   // published state until the index agrees.
-  const optimistic = useNoteRowOverlay(path, graph?.generation)?.gistUrl != null
-  const [isPublishing, setIsPublishing] = useState(false)
-  const [isUnpublishing, setIsUnpublishing] = useState(false)
+  const optimistic = useNoteRowOverlay(path)?.gistUrl != null
+  // The gist service never rejects (failures surface through the operations
+  // status line) and refuses overlapping actions on the same note, so the
+  // transition only drives the busy label.
+  const [isBusy, startGistTransition] = useTransition()
+  const [busyKind, setBusyKind] = useState<GistKind>('publish')
+
+  const runGist = useCallback(
+    (kind: GistKind): void => {
+      setBusyKind(kind)
+      startGistTransition(async () => {
+        if (kind === 'publish') {
+          await publishGistAndCopyLink(services, app, path)
+        } else {
+          await gistPublish.unpublish(path)
+        }
+      })
+    },
+    [services, app, path, gistPublish],
+  )
 
   const published = optimistic || (row?.gistUrl ?? null) !== null
   if (!connected || row?.isPrivate === true) {
     return null
   }
 
-  const onPublish = async (): Promise<void> => {
-    const generation = graph?.generation
-    if (generation === undefined) {
-      return
-    }
-    setIsPublishing(true)
-    try {
-      await runGistPublish(path, generation)
-    } finally {
-      setIsPublishing(false)
-    }
-  }
-
-  const onUnpublish = async (): Promise<void> => {
-    const generation = graph?.generation
-    if (generation === undefined) {
-      return
-    }
-    setIsUnpublishing(true)
-    try {
-      await runGistUnpublish(path, generation)
-    } finally {
-      setIsUnpublishing(false)
-    }
-  }
-
-  const isBusy = isPublishing || isUnpublishing
-  const label = isUnpublishing
-    ? 'Unpublishing…'
-    : isPublishing
-      ? 'Publishing…'
-      : published
-        ? 'Unpublish link'
-        : 'Share with private link'
+  const label = isBusy
+    ? busyKind === 'unpublish'
+      ? 'Unpublishing…'
+      : 'Publishing…'
+    : published
+      ? 'Unpublish link'
+      : 'Share with private link'
   const tooltip = published
     ? 'Delete the private GitHub gist for this note'
     : 'Creates a secret GitHub gist and copies its private link'
@@ -88,7 +82,7 @@ export function NoteGistAction({
         render={
           <button
             type="button"
-            onClick={() => void (published ? onUnpublish() : onPublish())}
+            onClick={() => runGist(published ? 'unpublish' : 'publish')}
             disabled={isBusy}
             className="group relative flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-start hover:bg-surface-hover disabled:opacity-50"
           >

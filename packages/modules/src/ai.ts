@@ -1,10 +1,10 @@
 export {
   APICallError,
   defaultSettingsMiddleware,
-  generateObject,
   generateText,
   isStepCount,
   NoObjectGeneratedError,
+  NoOutputGeneratedError,
   Output,
   simulateReadableStream,
   streamText,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { generateDateSuggestions, type DateSuggestion } from './date-suggestions.ts'
+import type { DateSuggestion } from './date-suggestion-types.ts'
+import { generateDateSuggestions } from './date-suggestions.ts'
 import type { DateFormat, WeekStartDay } from '../settings/schema.ts'
 
 /**
@@ -39,6 +40,10 @@ describe('generateDateSuggestions', () => {
         { date: '2020-01-08', phrase: '1 week from now' },
         { date: '2020-02-01', phrase: '1 month from now' },
       ])
+    })
+
+    it('offers nothing for an amount past the relative limit', () => {
+      expect(gen('1000000')).toEqual([])
     })
 
     it('shows both directions when a unit but no direction is given', () => {

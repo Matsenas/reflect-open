@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
 import { Check } from 'lucide-react'
 import { Drawer, DrawerBody, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
-import type { TaskFilters } from '@/lib/tasks/task-filters.ts'
+import type { TaskFilters } from '@reflect/core'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 
 interface TaskFiltersDrawerProps {
   open: boolean
@@ -69,13 +70,14 @@ function FilterRow({
   checked: boolean
   onToggle: () => void
 }): ReactElement {
+  const { haptics } = useMobileServices()
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
       onClick={() => {
-        hapticImpactLight()
+        hapticImpactLight(haptics)
         onToggle()
       }}
       className="flex h-12 items-center gap-3 text-left text-base"

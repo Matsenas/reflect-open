@@ -1,20 +1,16 @@
 import { useState, type ReactElement } from 'react'
 import { Virtualizer } from 'virtua'
-import { useQueryClient } from '@tanstack/react-query'
-import { toggleNotePinned } from '@/lib/note-pin.ts'
 import { NoteDeleteDrawer } from '@/mobile/note-delete-drawer.tsx'
 import {
   NOTE_ROW_HEIGHT,
   SwipeableNoteRow,
   type NoteRowModel,
 } from '@/mobile/swipeable-note-row.tsx'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface NoteRowListProps {
   rows: NoteRowModel[]
   onOpen: (path: string) => void
-  /** Called after a swipe action successfully deletes a row. */
-  onDeleted: (path: string) => void
 }
 
 /**
@@ -22,30 +18,21 @@ interface NoteRowListProps {
  * content line, relative timestamp, a pin marker on pinned notes) shared by
  * the plain list, the filtered feed, and search results — V1's one row shape.
  */
-export function NoteRowList({ rows, onOpen, onDeleted }: NoteRowListProps): ReactElement {
-  const { graph } = useGraph()
-  const queryClient = useQueryClient()
+export function NoteRowList({ rows, onOpen }: NoteRowListProps): ReactElement {
+  const { noteActions } = useCoreServices()
   const [revealedPath, setRevealedPath] = useState<string | null>(null)
   const [deletePath, setDeletePath] = useState<string | null>(null)
 
   const togglePin = (row: NoteRowModel): void => {
-    if (graph !== null) {
-      void toggleNotePinned({
-        queryClient,
-        root: graph.root,
-        generation: graph.generation,
-        path: row.path,
-      })
-    }
+    void noteActions.togglePinned(row.path)
   }
 
   return (
     <>
       <div
-        className="min-h-0 flex-1 overflow-y-auto"
         // Keyboard avoidance is the shell root's job (it ends at the keyboard's
-        // top); this only clears the home indicator when the keyboard is down.
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        // top); `pb-safe` only clears the home indicator when the keyboard is down.
+        className="min-h-0 flex-1 overflow-y-auto px-safe pb-safe"
         onScroll={() => setRevealedPath(null)}
       >
         <Virtualizer as="ul" item="li" data={rows} itemSize={NOTE_ROW_HEIGHT} bufferSize={640}>
@@ -56,9 +43,9 @@ export function NoteRowList({ rows, onOpen, onDeleted }: NoteRowListProps): Reac
               revealed={revealedPath === row.path}
               onReveal={() => setRevealedPath(row.path)}
               onClose={() => setRevealedPath(null)}
-              onBeginInteraction={() =>
+              onBeginInteraction={() => {
                 setRevealedPath((current) => (current === row.path ? current : null))
-              }
+              }}
               onOpen={() => onOpen(row.path)}
               onTogglePin={() => togglePin(row)}
               onDelete={() => {
@@ -79,7 +66,6 @@ export function NoteRowList({ rows, onOpen, onDeleted }: NoteRowListProps): Reac
               setDeletePath(null)
             }
           }}
-          onDeleted={() => onDeleted(deletePath)}
         />
       ) : null}
     </>

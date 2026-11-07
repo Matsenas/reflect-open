@@ -1,31 +1,52 @@
 import { Fragment, type Dispatch, type ReactElement, type SetStateAction } from 'react'
 import { Plus } from 'lucide-react'
-import { groupTaskContexts, type OpenTask, type TaskGroup } from '@reflect/core'
+import {
+  getTaskKey,
+  groupTaskContexts,
+  type InsertTaskTarget,
+  type OpenTask,
+  type TaskGroup,
+} from '@reflect/core'
 import { TaskBreadcrumbs } from '@/components/tasks/task-breadcrumbs.tsx'
 import { addTargetForGroup, taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
-import { getTaskKey } from '@/lib/tasks/task-identity.ts'
-import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 import { MobileTaskRow } from '@/mobile/task-row.tsx'
 
 interface MobileTaskGroupProps {
   group: TaskGroup
-  /** Today's ISO date — the Current group's "+" adds to today's daily. */
+  /**
+   * Today's ISO date — the Current group's "+" adds to today's daily.
+   */
   today: string
-  /** Add a task to this group and open its quick-edit sheet. */
+  /**
+   * Add a task to this group and open its quick-edit sheet.
+   */
   onAdd: (target: InsertTaskTarget) => void
-  /** Open the quick-edit sheet for a tapped row. */
+  /**
+   * Open the quick-edit sheet for a tapped row.
+   */
   onEdit: (task: OpenTask) => void
-  /** Toggle one task's checkbox. */
+  /**
+   * Toggle one task's checkbox.
+   */
   onToggle: (task: OpenTask) => void
-  /** Whether a Tasks write is in flight; checkboxes wait for it. */
+  /**
+   * Whether a Tasks write is in flight; checkboxes wait for it.
+   */
   togglePending: boolean
-  /** Open a note group's source note from its header, or a row's from its swipe action. */
+  /**
+   * Open a note group's source note from its header, or a row's from its swipe action.
+   */
   onOpen: (notePath: string) => void
-  /** Delete a task from its swipe action. */
+  /**
+   * Delete a task from its swipe action.
+   */
   onDelete: (task: OpenTask) => void
-  /** The `getTaskKey` of the one row whose swipe actions are showing, across all groups. */
+  /**
+   * The `getTaskKey` of the one row whose swipe actions are showing, across all groups.
+   */
   revealedTaskKey: string | null
   setRevealedTaskKey: Dispatch<SetStateAction<string | null>>
 }
@@ -50,6 +71,7 @@ export function MobileTaskGroup({
   revealedTaskKey,
   setRevealedTaskKey,
 }: MobileTaskGroupProps): ReactElement {
+  const { haptics } = useMobileServices()
   const showSource = group.kind !== 'note'
   const { notePath } = group
   const { icon, colorClass } = taskGroupHeaderStyle(group)
@@ -69,7 +91,7 @@ export function MobileTaskGroup({
             <button
               type="button"
               onClick={() => {
-                hapticImpactLight()
+                hapticImpactLight(haptics)
                 onOpen(notePath)
               }}
               className="truncate"
@@ -109,9 +131,9 @@ export function MobileTaskGroup({
                   revealed={revealedTaskKey === key}
                   onReveal={() => setRevealedTaskKey(key)}
                   onClose={() => setRevealedTaskKey(null)}
-                  onBeginInteraction={() =>
+                  onBeginInteraction={() => {
                     setRevealedTaskKey((current) => (current === key ? current : null))
-                  }
+                  }}
                   onOpenNote={() => onOpen(task.notePath)}
                   onDelete={() => onDelete(task)}
                 />

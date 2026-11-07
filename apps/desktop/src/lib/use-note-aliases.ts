@@ -7,11 +7,9 @@ import {
   withoutAlias,
   type NoteAliases,
 } from '@reflect/core'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { commitNoteFrontmatter, readNoteSource } from '@/lib/note-frontmatter.ts'
-import { startOperation } from '@/lib/operations.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 
 export interface NoteAliasesControl {
   /** `undefined` while the first read is in flight. */
@@ -29,14 +27,17 @@ export interface NoteAliasesControl {
  */
 export function useNoteAliases(path: string): NoteAliasesControl {
   const { graph } = useGraph()
-  const bridgeReady = useBridgeReady()
+  const { noteDocuments } = useCoreServices()
+  const { operations } = useAppServices()
   const queryClient = useQueryClient()
   const queryKey = queryKeys.index.noteAliases(graph?.root, path)
 
   const { data } = useQuery({
     queryKey,
-    queryFn: async (): Promise<NoteAliases> => readNoteAliases(path, await readNoteSource(path)),
-    enabled: bridgeReady && graph !== null,
+    queryFn: async (): Promise<NoteAliases> => {
+      return readNoteAliases(path, await noteDocuments.readSource(path))
+    },
+    enabled: graph !== null,
   })
 
   const update = async (
@@ -47,15 +48,15 @@ export function useNoteAliases(path: string): NoteAliasesControl {
       return
     }
     try {
-      const source = await readNoteSource(path)
+      const source = await noteDocuments.readSource(path)
       const current = parseNote({ path, source }).frontmatter.aliases
       const aliases = next(current)
-      queryClient.setQueryData<NoteAliases>(queryKey, (state) =>
-        state ? { ...state, frontmatter: aliases } : state,
-      )
-      await commitNoteFrontmatter(path, { aliases }, graph.generation)
+      queryClient.setQueryData<NoteAliases>(queryKey, (state) => {
+        return state ? { ...state, frontmatter: aliases } : state
+      })
+      await noteDocuments.commitFrontmatter(path, { aliases }, graph.generation)
     } catch (cause) {
-      startOperation(label).fail(errorMessage(cause))
+      operations.start(label).fail(errorMessage(cause))
     } finally {
       void queryClient.invalidateQueries({ queryKey, exact: true })
     }

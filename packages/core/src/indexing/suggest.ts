@@ -1,7 +1,8 @@
 /**
  * Pure ranking for `[[` autocomplete (Plan 07): merges title and alias matches
- * from the index into one ordered candidate list. The SQL layer (`queries.ts`)
- * only guarantees "contains the query somewhere"; the ordering policy — exact
+ * from the index into one ordered candidate list. The SQL layer
+ * (`suggestion-service.ts`) admits rows containing the query, plus titles the
+ * search index matches once accents are dropped; the ordering policy — exact
  * before word start before mid-word, much-linked before rarely linked, titles
  * before aliases, recent before stale — lives here where it can be unit-tested
  * without a database.
@@ -9,7 +10,7 @@
 
 import { foldKey } from '../markdown/keys.ts'
 import { displayNoteTitle, wikiLinkTargetForTitle } from '../markdown/note-title.ts'
-import type { DateSuggestion } from './date-suggestions.ts'
+import type { DateSuggestion } from './date-suggestion-types.ts'
 
 /**
  * Marks a suggestion the date generator synthesised from a fuzzy query and
@@ -129,17 +130,21 @@ function matchesWordStart(key: string, candidateKey: string): boolean {
 }
 
 /**
- * Lower ranks first: exact (0) < word start (2) < mid-word (3); 4 = empty
+ * Lower ranks first: exact (0) < word start (2) < mid-word (3) < not in the
+ * title as typed, e.g. an accent-insensitive search-index hit (4); 5 = empty
  * query. Rank 1 is left for an exact alias hit.
  */
 function matchRank(key: string, candidateKey: string): number {
   if (key === '') {
-    return 4
+    return 5
   }
   if (candidateKey === key) {
     return 0
   }
-  return matchesWordStart(key, candidateKey) ? 2 : 3
+  if (matchesWordStart(key, candidateKey)) {
+    return 2
+  }
+  return candidateKey.includes(key) ? 3 : 4
 }
 
 /**
@@ -201,14 +206,15 @@ export function rankWikiSuggestions(
     ...aliases.map((row) => toScored(row, row.alias, matchRank(key, row.aliasKey) || 1)),
   ]
 
-  scored.sort(
-    (a, b) =>
+  scored.sort((a, b) => {
+    return (
       a.rank - b.rank ||
       b.usage - a.usage ||
       Number(a.isAlias) - Number(b.isAlias) ||
       b.mtime - a.mtime ||
-      a.suggestion.title.localeCompare(b.suggestion.title),
-  )
+      a.suggestion.title.localeCompare(b.suggestion.title)
+    )
+  })
 
   const seen = new Set<string>()
   const result: WikiSuggestion[] = []
@@ -274,12 +280,13 @@ export function mergeDateSuggestions(
   })
 
   const rest = ranked.filter((suggestion) => !reused.has(suggestion))
-  const exactIndex = rest.findIndex(
-    (suggestion) =>
+  const exactIndex = rest.findIndex((suggestion) => {
+    return (
       foldKey(suggestion.target) === options.key ||
       foldKey(suggestion.title) === options.key ||
-      (suggestion.alias !== null && foldKey(suggestion.alias) === options.key),
-  )
+      (suggestion.alias !== null && foldKey(suggestion.alias) === options.key)
+    )
+  })
   const exact = rest[exactIndex]
   const ordered = exact
     ? [exact, ...dateRows, ...rest.filter((_, index) => index !== exactIndex)]

@@ -1,12 +1,11 @@
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
-import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
+import { useYouTubeVideoResolver } from '@/editor/youtube-video-resolver.ts'
 import { useCallback, useEffect, useRef, type ReactElement } from 'react'
 import type { ImageUrlResolver, WikiEmbedResolver } from '@meowdown/core'
 import { MarkdownView } from '@meowdown/react'
 import { useMarkdownLinkClick } from '@/editor/use-markdown-link-click.ts'
-import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
+import { useWikilinkResolver } from '@/editor/resolve-wikilink.ts'
 import { cn } from '@/lib/utils.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
 
 /**
  * A read-only rendering of note markdown via @meowdown/react's `<MarkdownView>`
@@ -70,12 +69,13 @@ export function MarkdownPreview({
   interactive = true,
   className,
 }: MarkdownPreviewProps): ReactElement {
-  const generation = useGraph({ optional: true })?.graph?.generation ?? null
-  const onLinkClick = useMarkdownLinkClick(generation, sourcePath)
+  const onLinkClick = useMarkdownLinkClick(sourcePath)
   // The click handler is read through a ref so a changing prop never gives
   // MarkdownView a new callback identity (which would re-render its whole
   // tree).
+  const resolveYouTubeVideo = useYouTubeVideoResolver()
   const resolveXPost = useXPostResolver()
+  const resolveWikilink = useWikilinkResolver()
   const navigateRef = useRef(onWikiLinkClick)
   useEffect(() => {
     navigateRef.current = onWikiLinkClick
@@ -88,8 +88,9 @@ export function MarkdownPreview({
   const navigates = interactive && onWikiLinkClick != null
 
   const onWikilinkClickStable = useCallback(
-    (payload: { target: string; event: MouseEvent | KeyboardEvent; mod: boolean }) =>
-      navigateRef.current?.({ target: payload.target, openInNewWindow: payload.mod }),
+    (payload: { target: string; event: MouseEvent | KeyboardEvent; mod: boolean }) => {
+      return navigateRef.current?.({ target: payload.target, openInNewWindow: payload.mod })
+    },
     [],
   )
 

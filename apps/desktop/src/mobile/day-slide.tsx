@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, type ReactElement } from 'react'
-import { dailyPath } from '@reflect/core'
 import { NotePane } from '@/components/note-pane.tsx'
-import { formatDayLabel } from '@/lib/dates.ts'
+import { dailyPath, formatDayLabel } from '@reflect/core'
 import { cn } from '@/lib/utils.ts'
 import { IncomingBacklinks } from '@/mobile/incoming-backlinks.tsx'
 import { MOBILE_CONTENT_GUTTER } from '@/mobile/mobile-content-gutter.ts'
@@ -78,12 +77,12 @@ export function DaySlide({
     onFocusConsumed()
   }, [cancelRestore, onFocusConsumed])
 
-  const lastResetSeq = useRef(scrollResetSeq)
+  const lastResetSeqRef = useRef(scrollResetSeq)
   useEffect(() => {
-    if (scrollResetSeq === lastResetSeq.current) {
+    if (scrollResetSeq === lastResetSeqRef.current) {
       return
     }
-    lastResetSeq.current = scrollResetSeq
+    lastResetSeqRef.current = scrollResetSeq
     if (!selected) {
       return
     }
@@ -102,10 +101,9 @@ export function DaySlide({
   return (
     <div
       ref={containerRef}
-      className="h-full overflow-y-auto"
       // Keyboard avoidance is the shell root's job (it ends at the keyboard's
-      // top); this only clears the home indicator when the keyboard is down.
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      // top); `pb-safe` only clears the home indicator when the keyboard is down.
+      className="h-full overflow-y-auto pb-safe"
       onScroll={handleScroll}
     >
       {/* A column at least as tall as the slide, with the editor taking the

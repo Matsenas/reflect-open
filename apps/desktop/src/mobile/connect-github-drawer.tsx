@@ -6,10 +6,8 @@ import { GithubAuthStep } from '@/components/settings/github-auth-step.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerBody, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import {
-  useConnectGithubWizard,
-  type ConnectWizardStep,
-} from '@/hooks/use-connect-github-wizard.ts'
+import { useConnectGithubWizard } from '@/hooks/use-connect-github-wizard.ts'
+import type { ConnectWizardStep } from '@reflect/app'
 
 interface ConnectGithubDrawerProps {
   open: boolean
@@ -19,8 +17,8 @@ interface ConnectGithubDrawerProps {
 }
 
 const STEP_DESCRIPTIONS: Record<ConnectWizardStep, string> = {
-  repo: 'Back up this graph to a private GitHub repository and sync it with Reflect on your other devices.',
-  auth: 'Sign in so Reflect can push your backups.',
+  repo: 'Sync this graph with Reflect on your other devices through a private GitHub repository.',
+  auth: 'Sign in so Reflect can sync with it.',
   finish: 'Connecting your repository…',
 }
 

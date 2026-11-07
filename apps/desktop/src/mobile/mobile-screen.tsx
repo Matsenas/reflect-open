@@ -2,8 +2,7 @@ import { lazy, type ReactElement } from 'react'
 import { useToday } from '@/lib/use-today.ts'
 import { MobileDaily } from '@/mobile/screens/daily.tsx'
 import { MobileNote } from '@/mobile/screens/note.tsx'
-import type { AllNotesFilters } from '@/mobile/search-filters/filter-state.ts'
-import type { Route } from '@/routing/route.ts'
+import type { AllNotesFilters, Route } from '@reflect/app'
 
 const MobileAllNotes = lazy(async () => {
   const { MobileAllNotes } = await import('@/mobile/screens/all-notes.tsx')
@@ -16,6 +15,10 @@ const MobileChat = lazy(async () => {
 const MobileGraphs = lazy(async () => {
   const { MobileGraphs } = await import('@/mobile/screens/graphs.tsx')
   return { default: MobileGraphs }
+})
+const MobileLicenses = lazy(async () => {
+  const { MobileLicenses } = await import('@/mobile/screens/licenses.tsx')
+  return { default: MobileLicenses }
 })
 const MobileSettings = lazy(async () => {
   const { MobileSettings } = await import('@/mobile/screens/settings.tsx')
@@ -96,6 +99,8 @@ export function MobileScreen({
       return <MobileSettings key="settings" />
     case 'graphs':
       return <MobileGraphs key="graphs" />
+    case 'licenses':
+      return <MobileLicenses key="licenses" />
     default:
       return <MobileDaily key="daily" date={today} />
   }

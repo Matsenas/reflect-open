@@ -1,36 +1,49 @@
 import type { ReactElement } from 'react'
 import { ArrowRight, Circle, CircleCheck, Trash2 } from 'lucide-react'
-import type { OpenTask } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { TaskText } from '@/components/tasks/task-text.tsx'
-import { formatShortDate } from '@/lib/dates.ts'
-import { getTaskKey } from '@/lib/tasks/task-identity.ts'
+import { getTaskKey, type OpenTask, formatShortDate } from '@reflect/core'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 import { SWIPE_ACTION_WIDTH, SwipeActionButton } from '@/mobile/swipe-action-button.tsx'
 import { useRowSwipe } from '@/mobile/use-row-swipe.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
-/** Total width of the two actions (open note, delete) under every task row. */
+/**
+ * Total width of the two actions (open note, delete) under every task row.
+ */
 const ACTION_WIDTH = SWIPE_ACTION_WIDTH * 2
 
 interface MobileTaskRowProps {
   task: OpenTask
-  /** Show the source-note date — date buckets aggregate tasks from many notes. */
+  /**
+   * Show the source-note date — date buckets aggregate tasks from many notes.
+   */
   showSource: boolean
-  /** Toggle the task's checkbox through the guarded write-back. */
+  /**
+   * Toggle the task's checkbox through the guarded write-back.
+   */
   onToggle: () => void
-  /** Whether a Tasks write is in flight; the checkbox waits for it. */
+  /**
+   * Whether a Tasks write is in flight; the checkbox waits for it.
+   */
   togglePending: boolean
-  /** Open the quick-edit sheet for this task (V1 mobile: tap edits in place). */
+  /**
+   * Open the quick-edit sheet for this task (V1 mobile: tap edits in place).
+   */
   onEdit: (task: OpenTask) => void
   revealed: boolean
   onReveal: () => void
   onClose: () => void
   onBeginInteraction: () => void
-  /** Navigate to the task's source note (the revealed Note action). */
+  /**
+   * Navigate to the task's source note (the revealed Note action).
+   */
   onOpenNote: () => void
-  /** Delete the task outright; no confirmation, matching the sheet's Delete. */
+  /**
+   * Delete the task outright; no confirmation, matching the sheet's Delete.
+   */
   onDelete: () => void
 }
 
@@ -57,6 +70,7 @@ export function MobileTaskRow({
   onOpenNote,
   onDelete,
 }: MobileTaskRowProps): ReactElement {
+  const { haptics } = useMobileServices()
   const { settings } = useSettings()
   const label = task.text || 'Empty task'
   const edit = (): void => onEdit(task)
@@ -86,7 +100,7 @@ export function MobileTaskRow({
           revealed={revealed}
           className="bg-accent"
           onClick={() => {
-            hapticImpactLight()
+            hapticImpactLight(haptics)
             onClose()
             onOpenNote()
           }}
@@ -98,7 +112,7 @@ export function MobileTaskRow({
           revealed={revealed}
           className="bg-destructive"
           onClick={() => {
-            hapticImpactLight()
+            hapticImpactLight(haptics)
             onClose()
             onDelete()
           }}
@@ -129,7 +143,7 @@ export function MobileTaskRow({
           aria-label={task.checked ? `Reopen: ${label}` : `Complete: ${label}`}
           disabled={togglePending}
           onClick={() => {
-            hapticImpactLight()
+            hapticImpactLight(haptics)
             onToggle()
           }}
           // A generous touch target around the small glyph; self-stretch keeps

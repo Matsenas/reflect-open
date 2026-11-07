@@ -1,27 +1,23 @@
 name: Publish TestFlight
 
 on:
-  workflow_dispatch:
-    inputs:
-      export_method:
-        description: Xcode export method for the IPA.
-        required: true
-        type: choice
-        default: app-store-connect
-        options:
-          - app-store-connect
-          - release-testing
   workflow_call:
     inputs:
       commit:
         description: Immutable commit targeted by the release tag.
         required: true
         type: string
-      export_method:
-        description: Xcode export method for the IPA (app-store-connect or release-testing).
-        required: false
-        type: string
-        default: app-store-connect
+    secrets:
+      APPLE_API_KEY:
+        required: true
+      APPLE_API_ISSUER:
+        required: true
+      APPLE_API_KEY_CONTENT:
+        required: true
+      SENTRY_AUTH_TOKEN:
+        required: true
+      SENTRY_DSN:
+        required: true
 
 concurrency:
   group: publish-testflight
@@ -32,16 +28,17 @@ permissions:
 
 jobs:
   testflight:
-    name: Build and upload iOS
+    name: Build iOS
     if: github.repository == 'team-reflect/reflect-open'
-    runs-on: macos-26
+    environment: release_app
+    runs-on: xcode-27
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Reusable workflows inherit the caller SHA, which may not be the
           # release snapshot. Always build the verified immutable tag commit.
-          ref: ${{ inputs.commit || github.sha }}
+          ref: ${{ inputs.commit }}
           persist-credentials: false
 
       - name: Verify TestFlight secrets are configured
@@ -57,15 +54,20 @@ jobs:
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::missing TestFlight secret(s): ${missing[*]} — see docs/ios-testflight.md"
+            echo "::error::missing TestFlight secret(s): ${missing[*]} — see docs/distribution.md"
             exit 1
           fi
 
+      - uses: ./.github/actions/setup-xcode
+
+      # Any master job can write the caches, so a release build starts cold.
       - uses: ./.github/actions/setup-node
+        with:
+          cache: false
 
       - uses: ./.github/actions/setup-rust
         with:
-          targets: aarch64-apple-ios
+          cache: false
 
       - name: Resolve build number
         id: build_number
@@ -75,15 +77,23 @@ jobs:
           echo "value=$build_number" >> "$GITHUB_OUTPUT"
           echo "Using TestFlight CFBundleVersion $build_number"
 
-      - name: Build and upload to TestFlight
+      - name: Build
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
-          EXPORT_METHOD: ${{ inputs.export_method }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-        run: pnpm release:ios --build-number="$BUILD_NUMBER" --export-method="$EXPORT_METHOD"
+          REFLECT_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: pnpm build:ios --build-number="$BUILD_NUMBER"
+
+      - name: Upload to TestFlight
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: pnpm upload:testflight
 
       # Xcode Organizer symbolicates a TestFlight crash report from the local
       # archive, which a CI runner throws away. Keep it so an Apple `.ips` that
@@ -103,16 +113,16 @@ jobs:
       # TestFlight builds cannot be downloaded back from App Store Connect.
       - name: Upload IPA artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reflect-ios-ipa-${{ steps.build_number.outputs.value }}
           path: apps/desktop/src-tauri/gen/apple/build/arm64/*.ipa
           if-no-files-found: ignore
-          retention-days: 90
+          retention-days: 30
 
       - name: Upload Xcode archive artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reflect-ios-xcarchive-${{ steps.build_number.outputs.value }}
           path: ${{ runner.temp }}/reflect-ios-xcarchive-${{ steps.build_number.outputs.value }}.zip

@@ -19,7 +19,6 @@ import {
   useTaskEditorFinalizer,
   type TaskEditorApi,
 } from '@/lib/tasks/use-task-editor-finalizer.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
 /**
@@ -162,11 +161,9 @@ export function TaskEditor({
   checkboxToggleControllerRef,
   convertControllerRef,
 }: TaskEditorProps): ReactElement {
-  const { graph } = useGraph()
   const { settings } = useSettings()
-  const generation = graph?.generation ?? null
-  const navigate = useWikiLinkNavigation(generation)
-  const onLinkClick = useMarkdownLinkClick(generation, null)
+  const navigate = useWikiLinkNavigation()
+  const onLinkClick = useMarkdownLinkClick(null)
   const onTagClick = useTagNavigation()
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
 

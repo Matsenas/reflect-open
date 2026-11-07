@@ -1,14 +1,19 @@
-import { useEffect, useState, type MouseEvent, type ReactElement } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useTransition,
+  type MouseEvent,
+  type ReactElement,
+} from 'react'
 import { Check, Copy, RefreshCw } from 'lucide-react'
 import { errorMessage } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useNoteRow } from '@/hooks/use-note-row.ts'
-import { runGistPublish } from '@/lib/note-gist.ts'
-import { openUrlSync } from '@/lib/open-url.ts'
-import { startOperation } from '@/lib/operations.ts'
+import { publishGistAndCopyLink } from '@/lib/clipboard-actions.ts'
 import { cn } from '@/lib/utils.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 import { SidebarSection } from './sidebar-section.tsx'
 
 interface PublishedUrlSectionProps {
@@ -25,11 +30,14 @@ const COPY_RESET_MS = 1400
  * plus a compact copy affordance for sharing it again.
  */
 export function PublishedUrlSection({ path }: PublishedUrlSectionProps): ReactElement | null {
-  const { graph } = useGraph()
+  const services = useCoreServices()
+  const app = useAppServices()
+  const { clipboard, opener, operations } = app
   const row = useNoteRow(path)
   const url = row?.gistUrl ?? null
   const [copyState, setCopyState] = useState<CopyState>('idle')
-  const [isUpdating, setIsUpdating] = useState(false)
+  // The gist service never rejects, so the transition only drives the spinner.
+  const [isUpdating, startUpdate] = useTransition()
 
   // Reset the transient "copied" badge whenever the published URL changes.
   const [appliedUrl, setAppliedUrl] = useState(url)
@@ -46,37 +54,30 @@ export function PublishedUrlSection({ path }: PublishedUrlSectionProps): ReactEl
     return () => window.clearTimeout(timeout)
   }, [copyState])
 
+  const updateGist = useCallback((): void => {
+    startUpdate(async () => {
+      await publishGistAndCopyLink(services, app, path)
+    })
+  }, [services, app, path])
+
   if (url === null) {
     return null
   }
 
   const copyUrl = async (): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(url)
+      await clipboard.writeText(url)
       setCopyState('copied')
-      startOperation('Published URL copied').done()
+      operations.start('Published URL copied').done()
     } catch (cause) {
-      startOperation('Copying the published URL').fail(errorMessage(cause))
+      operations.start('Copying the published URL').fail(errorMessage(cause))
     }
   }
 
   const openPublishedUrl = (event: MouseEvent<HTMLAnchorElement>): void => {
     event.preventDefault()
     if (url.startsWith('https://') || url.startsWith('http://')) {
-      openUrlSync(url)
-    }
-  }
-
-  const updateGist = async (): Promise<void> => {
-    const generation = graph?.generation
-    if (generation === undefined) {
-      return
-    }
-    setIsUpdating(true)
-    try {
-      await runGistPublish(path, generation)
-    } finally {
-      setIsUpdating(false)
+      opener.openUrlSync(url)
     }
   }
 
@@ -120,7 +121,7 @@ export function PublishedUrlSection({ path }: PublishedUrlSectionProps): ReactEl
                 variant="ghost"
                 size="icon-xs"
                 aria-label="Update published gist"
-                onClick={() => void updateGist()}
+                onClick={updateGist}
                 disabled={isUpdating}
                 className={cn(
                   'text-text-muted hover:text-text',

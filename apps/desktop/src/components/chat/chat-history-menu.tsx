@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { formatDistanceToNow } from 'date-fns'
+import { formatTimeAgo } from '@reflect/utils'
 import { Check, History, X } from 'lucide-react'
 import { Button } from '@/components/ui/button.tsx'
 import {
@@ -9,10 +9,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { createChatConversationsQueryOptions } from '@/lib/query-options.ts'
 import { useChatSession } from '@/providers/chat-provider.tsx'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 /**
  * The conversation history: a dropdown over the persisted conversations,
@@ -22,14 +22,14 @@ import { useGraph } from '@/providers/graph-provider.tsx'
  */
 export function ChatHistoryMenu(): ReactElement | null {
   const { graph, indexGeneration } = useGraph()
+  const { chatHistory } = useCoreServices()
   const { activeConversationId, openConversation, deleteConversation } = useChatSession()
 
-  const bridgeReady = useBridgeReady()
-  const enabled = bridgeReady && indexGeneration !== null
+  const enabled = indexGeneration !== null
   const { data: conversations } = useQuery({
     // The graph root is part of the key: conversations belong to one graph,
     // and a graph switch must never serve the previous graph's cached list.
-    ...createChatConversationsQueryOptions(graph?.root),
+    ...createChatConversationsQueryOptions(chatHistory, graph?.root),
     enabled,
   })
 
@@ -72,7 +72,7 @@ export function ChatHistoryMenu(): ReactElement | null {
               >
                 <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
                 <span className="shrink-0 text-xs text-text-muted">
-                  {formatDistanceToNow(conversation.updatedMs, { addSuffix: true })}
+                  {formatTimeAgo(conversation.updatedMs)}
                 </span>
                 {current ? (
                   <Check aria-hidden className="size-3.5 shrink-0 text-accent" />

@@ -1,5 +1,4 @@
-import { useRef, useState, type ReactElement } from 'react'
-import { errorMessage } from '@reflect/core'
+import type { ReactElement } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import {
   Drawer,
@@ -8,8 +7,8 @@ import {
   DrawerDescription,
   DrawerTitle,
 } from '@/components/ui/drawer.tsx'
-import { deleteOpenNote } from '@/lib/note-delete.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useAsyncAction } from '@/hooks/use-async-action.ts'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface NoteDeleteDrawerProps {
   /** Graph-relative path of the regular note to move to trash. */
@@ -17,7 +16,7 @@ interface NoteDeleteDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Called after the note is safely in trash. */
-  onDeleted: () => void
+  onDeleted?: () => void
 }
 
 /**
@@ -31,39 +30,22 @@ export function NoteDeleteDrawer({
   onOpenChange,
   onDeleted,
 }: NoteDeleteDrawerProps): ReactElement {
-  const { graph } = useGraph()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const submittingRef = useRef(false)
+  const { noteActions } = useCoreServices()
+  const { run, pending: busy, error, reset } = useAsyncAction()
 
   const handleOpenChange = (next: boolean): void => {
     if (!busy) {
-      setError(null)
+      reset()
       onOpenChange(next)
     }
   }
 
   const confirmDelete = async (): Promise<void> => {
-    if (submittingRef.current) {
-      return
-    }
-    if (graph === null) {
-      setError('No graph is open.')
-      return
-    }
-    submittingRef.current = true
-    setBusy(true)
-    setError(null)
-    try {
-      await deleteOpenNote(path, graph.generation)
+    await run(async () => {
+      await noteActions.trashOne(path)
       onOpenChange(false)
-      onDeleted()
-    } catch (cause) {
-      setError(errorMessage(cause))
-    } finally {
-      submittingRef.current = false
-      setBusy(false)
-    }
+      onDeleted?.()
+    })
   }
 
   return (

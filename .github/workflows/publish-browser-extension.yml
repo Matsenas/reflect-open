@@ -23,14 +23,15 @@ concurrency:
   group: publish-browser-extension
   cancel-in-progress: false
 
-# Uploads the zip into the release-please draft release and undrafts it.
 permissions:
   contents: write
 
 jobs:
   release:
+    name: Build browser extension
     if: github.repository == 'team-reflect/reflect-open' && github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
+    environment: release_extension
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,7 +39,10 @@ jobs:
           ref: ${{ inputs.commit }}
           persist-credentials: false
 
+      # Any master job can write the caches, so a release build starts cold.
       - uses: ./.github/actions/setup-node
+        with:
+          cache: false
 
       - name: Verify the release tag matches apps/extension/package.json
         env:
