@@ -14,8 +14,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/Matsenas/reflect-open/releases/download/updater-fork-noop/latest.json"
-      ]
+        "https://github.com/Matsenas/reflect-open/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA5RDE1NEYxN0M3MjE5OEQKUldTTkdYSjg4VlRSQ1lvMXh1YzhqN0hyK1VDam96SjJnaVl5WVMreWtxOXhMTVZwcUZQWmpubGwK"
     }
   }
 }
