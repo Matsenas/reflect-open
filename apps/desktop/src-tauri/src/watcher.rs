@@ -22,32 +22,29 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use file_id::{get_file_id, FileId};
-use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, FileIdCache};
-use reflect_graph_paths::{
-    classify, evicted_logical_path, eviction_placeholder, has_pruned_component, is_pruned_dir_name,
-    to_slash_lossy, wire_path, GraphPathKind,
+use file_id::{FileId, get_file_id};
+use notify::{EventKindMask, RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{
+    DebounceEventHandler, DebounceEventResult, Debouncer, FileIdCache, new_debouncer_opt,
 };
-use serde::Serialize;
+use reflect_graph_paths::{
+    GraphPathKind, classify, evicted_logical_path, eviction_placeholder, has_pruned_component,
+    is_pruned_dir_name, to_slash_lossy, wire_path,
+};
 use tauri::{AppHandle, Emitter, Manager, State};
 use walkdir::WalkDir;
 
 use crate::error::{AppError, AppResult};
 use crate::fs::GraphState;
+use reflect_types::events::{INDEX_CHANGED, INDEX_RECONCILE};
+use reflect_types::{ChangeKind, FileChange};
 
-/// The Tauri event name carrying batched {@link FileChange}s to the frontend.
-const CHANGE_EVENT: &str = "index:changed";
+type GraphDebouncer = Debouncer<RecommendedWatcher, PrunedFileIdMap>;
 
-/// The coarse dirty signal: a visible directory was created, renamed, or
-/// removed (or the platform demanded a rescan), and its descendants were
-/// never enumerated per file. Carries no payload — the frontend answers with
-/// one full reconcile pass.
-pub(crate) const RECONCILE_EVENT: &str = "index:reconcile";
-
-/// Holds the active debouncer; dropping it stops the background watch thread.
+/// Holds the active debouncer with the graph root it watches and that root's
+/// file ID; dropping the debouncer stops the background watch thread.
 #[derive(Default)]
-pub struct WatcherState(pub Mutex<Option<Debouncer<RecommendedWatcher, PrunedFileIdMap>>>);
+pub struct WatcherState(pub Mutex<Option<(PathBuf, FileId, GraphDebouncer)>>);
 
 /// The debouncer's file-ID cache, pruned to the trees that can carry tracked
 /// files.
@@ -135,22 +132,6 @@ impl FileIdCache for PrunedFileIdMap {
     }
 }
 
-/// A debounced change to a tracked file, sent to the frontend.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileChange {
-    /// Graph-relative path, forward-slashed.
-    pub path: String,
-    /// `"upsert"` (created/modified) or `"remove"` (deleted).
-    pub kind: String,
-    /// Last-modified time in epoch milliseconds, set for upserts. The frontend
-    /// stamps `notes.mtime` from this — without it, watcher-indexed rows would
-    /// carry no real timestamp (and reconcile would never repair them, since it
-    /// is content-hash gated).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modified_ms: Option<u64>,
-}
-
 /// What one debounced batch amounts to: precise per-file changes, and/or the
 /// coarse signal that a full reconcile is needed.
 #[derive(Debug, Default, PartialEq)]
@@ -217,7 +198,7 @@ fn collect_changes(paths: &[PathBuf], root: &Path) -> BatchEffects {
                 // one must leave the index rather than be read through.
                 Ok(meta) if meta.file_type().is_symlink() => FileChange {
                     path: rel.clone(),
-                    kind: "remove".to_string(),
+                    kind: ChangeKind::Remove,
                     modified_ms: None,
                 },
                 // A directory took a tracked file's name: membership changed
@@ -234,7 +215,7 @@ fn collect_changes(paths: &[PathBuf], root: &Path) -> BatchEffects {
                 Ok(meta) if crate::fs::is_dataless(&meta) => continue,
                 Ok(meta) => FileChange {
                     path: rel.clone(),
-                    kind: "upsert".to_string(),
+                    kind: ChangeKind::Upsert,
                     modified_ms: crate::fs::modified_ms(&meta),
                 },
                 Err(_) => {
@@ -249,7 +230,7 @@ fn collect_changes(paths: &[PathBuf], root: &Path) -> BatchEffects {
                     }
                     FileChange {
                         path: rel.clone(),
-                        kind: "remove".to_string(),
+                        kind: ChangeKind::Remove,
                         modified_ms: None,
                     }
                 }
@@ -277,11 +258,27 @@ fn collect_changes(paths: &[PathBuf], root: &Path) -> BatchEffects {
 
 fn lock_watcher<'a>(
     watcher: &'a State<WatcherState>,
-) -> AppResult<std::sync::MutexGuard<'a, Option<Debouncer<RecommendedWatcher, PrunedFileIdMap>>>> {
+) -> AppResult<std::sync::MutexGuard<'a, Option<(PathBuf, FileId, GraphDebouncer)>>> {
     watcher.0.lock().map_err(|err| {
         tracing::error!(?err, "watcher state lock poisoned by an earlier panic");
         AppError::io("watcher state lock poisoned")
     })
+}
+
+/// Watch `root` recursively and hand each debounced batch to `handler`.
+///
+/// Only changes are subscribed. On Linux the default also reports opens, and
+/// the reconcile pass opens every directory: each pass would trigger the next.
+fn watch_graph(root: &Path, handler: impl DebounceEventHandler) -> notify::Result<GraphDebouncer> {
+    let mut debouncer = new_debouncer_opt(
+        Duration::from_millis(400),
+        None,
+        handler,
+        PrunedFileIdMap::new(root.to_path_buf()),
+        notify::Config::default().with_event_kinds(EventKindMask::CORE),
+    )?;
+    debouncer.watch(root, RecursiveMode::Recursive)?;
+    Ok(debouncer)
 }
 
 /// Start (or restart) watching the active graph; emits `index:changed`
@@ -304,50 +301,54 @@ pub fn watch_start(
     })?;
     let root = graph_guard.root.clone().ok_or_else(AppError::no_graph)?;
 
+    let mut active = lock_watcher(&watcher)?;
+    let root_id = get_file_id(&root);
+    // Every index pass ends here. Keep a watcher on this very directory at this
+    // path: the file ID differs for a folder replaced at the same path. On
+    // Linux, a dropped watcher keeps its thread and inotify fd while events
+    // keep arriving, so replacing it on every pass leaks.
+    let unchanged = root_id.as_ref().is_ok_and(|root_id| {
+        active
+            .as_ref()
+            .is_some_and(|(path, id, _)| *path == root && id == root_id)
+    });
+    if unchanged {
+        return Ok(());
+    }
     // Drop any previous watcher first: if installing the new one fails we're then
     // left with no watcher, rather than the previous graph's still driving
     // index:changed against the now-current graph.
-    *lock_watcher(&watcher)? = None;
+    *active = None;
+    let root_id = root_id.map_err(|err| AppError::io(err.to_string()))?;
 
     let started = std::time::Instant::now();
     let handler_root = root.clone();
-    let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, PrunedFileIdMap>(
-        Duration::from_millis(400),
-        None,
-        move |result: DebounceEventResult| {
-            let Ok(events) = result else {
-                return; // watch errors are transient; the next batch recovers
-            };
-            let rescan_demanded = events.iter().any(|event| event.need_rescan());
-            let paths: Vec<PathBuf> = events
-                .iter()
-                .flat_map(|event| event.paths.clone())
-                .collect();
-            let mut effects = collect_changes(&paths, &handler_root);
-            effects.reconcile |= rescan_demanded;
-            if effects.reconcile || !effects.changes.is_empty() {
-                // Drop the cached catalog before telling the frontend: its
-                // follow-up `list_files` must re-walk, not replay the cache.
-                crate::fs::invalidate_file_catalog(&app.state::<GraphState>(), &handler_root);
-            }
-            if !effects.changes.is_empty() {
-                let _ = app.emit(CHANGE_EVENT, &effects.changes);
-            }
-            if effects.reconcile {
-                let _ = app.emit(RECONCILE_EVENT, ());
-            }
-        },
-        PrunedFileIdMap::new(root.clone()),
-        notify::Config::default(),
-    )
+    let debouncer = watch_graph(&root, move |result: DebounceEventResult| {
+        let Ok(events) = result else {
+            return; // watch errors are transient; the next batch recovers
+        };
+        let rescan_demanded = events.iter().any(|event| event.need_rescan());
+        let paths: Vec<PathBuf> = events
+            .iter()
+            .flat_map(|event| event.paths.clone())
+            .collect();
+        let mut effects = collect_changes(&paths, &handler_root);
+        effects.reconcile |= rescan_demanded;
+        if effects.reconcile || !effects.changes.is_empty() {
+            // Drop the cached catalog before telling the frontend: its
+            // follow-up `list_files` must re-walk, not replay the cache.
+            crate::fs::invalidate_file_catalog(&app.state::<GraphState>(), &handler_root);
+        }
+        if !effects.changes.is_empty() {
+            let _ = app.emit(INDEX_CHANGED, &effects.changes);
+        }
+        if effects.reconcile {
+            let _ = app.emit(INDEX_RECONCILE, ());
+        }
+    })
     .map_err(|err| AppError::io(err.to_string()))?;
 
-    debouncer
-        .watch(&root, RecursiveMode::Recursive)
-        .map_err(|err| AppError::io(err.to_string()))?;
-
-    // Dropping any previous debouncer here stops its thread.
-    *lock_watcher(&watcher)? = Some(debouncer);
+    *active = Some((root, root_id, debouncer));
     drop(graph_guard);
     tracing::info!(
         elapsed_ms = started.elapsed().as_millis() as u64,
@@ -490,7 +491,7 @@ mod tests {
             effects.changes,
             vec![FileChange {
                 path: "notes/a.md".to_string(),
-                kind: "remove".to_string(),
+                kind: ChangeKind::Remove,
                 modified_ms: None,
             }]
         );
@@ -508,7 +509,7 @@ mod tests {
         let effects = collect_changes(&[note], root);
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].path, "notes/a.md");
-        assert_eq!(effects.changes[0].kind, "upsert");
+        assert_eq!(effects.changes[0].kind, ChangeKind::Upsert);
         // A real timestamp, not epoch zero — All Notes sorts and labels by it.
         assert!(effects.changes[0].modified_ms.is_some_and(|ms| ms > 0));
         assert!(!effects.reconcile);
@@ -556,6 +557,39 @@ mod tests {
         assert_eq!(effects, BatchEffects::default());
     }
 
+    /// Reading the graph is not a change. On Linux, inotify can report opens,
+    /// and the reconcile pass opens every directory: if those reached the
+    /// handler, each pass would trigger the next.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reading_the_graph_reports_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        std::fs::create_dir_all(root.join(".git/objects/aa")).unwrap();
+        std::fs::write(root.join("notes/a.md"), "# a").unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let _debouncer = watch_graph(root, sender).unwrap();
+
+        for entry in WalkDir::new(root) {
+            let entry = entry.unwrap();
+            if entry.file_type().is_file() {
+                std::fs::read(entry.path()).unwrap();
+            }
+        }
+        let batch = receiver.recv_timeout(Duration::from_secs(1));
+        assert!(batch.is_err(), "a read-only walk reported {batch:?}");
+
+        // The watcher still reports a real change.
+        let written = root.join("notes/b.md");
+        std::fs::write(&written, "# b").unwrap();
+        let batch = receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
+        assert!(batch.iter().any(|event| event.paths.contains(&written)));
+    }
+
     #[test]
     fn hidden_churn_never_triggers_a_reconcile() {
         let dir = tempfile::tempdir().unwrap();
@@ -588,7 +622,7 @@ mod tests {
 
         let effects = collect_changes(&[root.join("notes/a.md")], root);
         assert_eq!(effects.changes.len(), 1);
-        assert_eq!(effects.changes[0].kind, "remove");
+        assert_eq!(effects.changes[0].kind, ChangeKind::Remove);
     }
 
     #[test]
@@ -644,7 +678,7 @@ mod tests {
 
         let effects = collect_changes(&[root.join("notes/a.md")], root);
         assert_eq!(effects.changes.len(), 1);
-        assert_eq!(effects.changes[0].kind, "remove");
+        assert_eq!(effects.changes[0].kind, ChangeKind::Remove);
     }
 
     #[test]
@@ -660,7 +694,7 @@ mod tests {
         let effects = collect_changes(&[root.join("notes/.a.md.icloud")], root);
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].path, "notes/a.md");
-        assert_eq!(effects.changes[0].kind, "upsert");
+        assert_eq!(effects.changes[0].kind, ChangeKind::Upsert);
     }
 
     #[test]

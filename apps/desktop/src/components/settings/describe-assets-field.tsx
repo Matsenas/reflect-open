@@ -1,5 +1,4 @@
-import { useState, type ReactElement } from 'react'
-import type { AiProvidersState } from '@reflect/core'
+import { useCallback, useState, type ReactElement } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import {
   Dialog,
@@ -10,9 +9,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
-import { backfillAssetDescriptionsVisibly } from '@/lib/asset-backfill.ts'
+import { useAsyncAction } from '@/hooks/use-async-action.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { SettingsField } from './field.tsx'
 
 /**
@@ -25,28 +25,20 @@ import { SettingsField } from './field.tsx'
 export function DescribeAssetsField(): ReactElement {
   const { settings, updateSettings } = useSettings()
   const { graph } = useGraph()
+  const { assetDescription } = useCoreServices()
   const [confirming, setConfirming] = useState(false)
-  const [running, setRunning] = useState(false)
+  const backfill = useAsyncAction()
 
   const hasProvider = settings.aiProviders.length > 0
-  const generation = graph?.generation ?? null
 
-  const runBackfill = async (): Promise<void> => {
+  const { run: runAction } = backfill
+  const runBackfill = useCallback((): void => {
     setConfirming(false)
-    if (generation === null || running) {
-      return
-    }
-    const providers: AiProvidersState = {
-      providers: settings.aiProviders,
-      defaultProviderId: settings.defaultAiProviderId,
-    }
-    setRunning(true)
-    try {
-      await backfillAssetDescriptionsVisibly(generation, providers)
-    } finally {
-      setRunning(false)
-    }
-  }
+    // `error` is intentionally not rendered: the operations UI owns failures.
+    void runAction(async () => {
+      await assetDescription.backfillVisibly()
+    })
+  }, [runAction, assetDescription])
 
   return (
     <SettingsField
@@ -66,11 +58,11 @@ export function DescribeAssetsField(): ReactElement {
           type="button"
           variant="outline"
           size="sm"
-          disabled={generation === null || !hasProvider || running}
+          disabled={graph === null || !hasProvider || backfill.pending}
           onClick={() => setConfirming(true)}
           className="text-text-secondary"
         >
-          {running ? 'Backfilling…' : 'Backfill assets'}
+          {backfill.pending ? 'Scanning…' : 'Scan existing files'}
         </Button>
         {!hasProvider ? (
           <p className="mt-2 text-xs text-text-muted">Add an AI provider to enable this.</p>
@@ -85,7 +77,7 @@ export function DescribeAssetsField(): ReactElement {
         >
           <DialogContent showCloseButton={false} className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>Backfill assets?</DialogTitle>
+              <DialogTitle>Scan existing files?</DialogTitle>
               <DialogDescription>
                 Images and PDFs in non-private notes will be sent to your AI provider so their text
                 can appear in search. Assets that already have OCR are skipped.
@@ -95,8 +87,8 @@ export function DescribeAssetsField(): ReactElement {
               <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(false)}>
                 Cancel
               </Button>
-              <Button type="button" size="sm" onClick={() => void runBackfill()}>
-                Backfill assets
+              <Button type="button" size="sm" onClick={runBackfill}>
+                Scan existing files
               </Button>
             </DialogFooter>
           </DialogContent>

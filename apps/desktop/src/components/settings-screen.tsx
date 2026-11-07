@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { AboutSection } from './settings/about-section.tsx'
+import { AccountsSection } from './settings/accounts-section.tsx'
 import { AgentsSection } from './settings/agents-section.tsx'
 import { AiChatSection } from './settings/ai-chat-section.tsx'
 import { AiPromptsSection } from './settings/ai-prompts-section.tsx'
@@ -23,7 +24,7 @@ import { TemplatesSection } from './settings/templates-section.tsx'
  */
 export function SettingsScreen(): ReactElement {
   return (
-    <div aria-label="Settings">
+    <div aria-label="Settings" data-testid="settings-screen">
       <h1 className="text-lg font-semibold text-text">Settings</h1>
       <div className="mt-6">
         <AppearanceSection />
@@ -39,6 +40,7 @@ export function SettingsScreen(): ReactElement {
         <AgentsSection />
         <IntegrationsSection />
         <SyncSection />
+        <AccountsSection />
         <ImportSection />
         <AboutSection />
         <DestructiveSection />

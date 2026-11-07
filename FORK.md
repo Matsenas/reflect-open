@@ -21,12 +21,11 @@ the change ends.
 | Change | Kind | Fork commit | Upstream status | Notes |
 | --- | --- | --- | --- | --- |
 | Fork maintenance rules | Fork identity and config | `f73f44f1` | Fork-only | The `# Fork Maintenance` section at the end of `AGENTS.md`. |
-| GPT-6.1 Sol through OpenRouter | General improvement | [Matsenas/reflect-open#1](https://github.com/Matsenas/reflect-open/pull/1) | Not offered | One catalog entry in `packages/core/src/ai/provider-catalog.ts`. Drop if upstream adds the model. |
 | R2 asset publisher plan | Fork-only feature | [Matsenas/reflect-open#2](https://github.com/Matsenas/reflect-open/pull/2) | Fork-only | Planned, not built: [docs/plans/fork-r2-asset-publisher.md](docs/plans/fork-r2-asset-publisher.md). Runs outside the app, so it never touches app code. |
-| OpenAI data-residency regions | General improvement | [Matsenas/reflect-open#3](https://github.com/Matsenas/reflect-open/pull/3) | Not offered | Region picker in desktop and mobile AI provider settings (`openai-region-select.tsx`, `use-ai-providers.ts`). |
+| OpenAI data-residency regions | General improvement | [Matsenas/reflect-open#3](https://github.com/Matsenas/reflect-open/pull/3) | Not offered | Region picker in desktop and mobile AI provider settings (`openai-region-select.tsx`, `ai-provider-config-service.ts`, `language-model-service.ts`). |
 | Mac build overlay | Fork identity and config | [Matsenas/reflect-open#4](https://github.com/Matsenas/reflect-open/pull/4) | Fork-only | `tauri.fork.conf.json`: ad-hoc signing, no iCloud entitlements, dead updater endpoint. Build steps in `AGENTS.md`. |
-| Note aliases in the context sidebar | General improvement | `11cfb119` | Open: [team-reflect/reflect-open#1444](https://github.com/team-reflect/reflect-open/pull/1444) | Mirrors the upstream PR byte for byte. If upstream merges a revised version, take theirs on sync. |
-| iCloud self-conflicts no longer duplicate lines | General improvement | [Matsenas/reflect-open#5](https://github.com/Matsenas/reflect-open/pull/5) | Not offered | `conflict/own_writes.rs` plus the draft guard in `conflict/union.rs`. Worth offering upstream. |
+| Note aliases in the context sidebar | General improvement | `11cfb119` | Open: [team-reflect/reflect-open#1444](https://github.com/team-reflect/reflect-open/pull/1444) | Ported to the core services in the 2026-11 sync, so #1444 needs the same port before it can merge. If upstream merges a revised version, take theirs on sync. |
+| iCloud self-conflicts no longer duplicate lines | General improvement | [Matsenas/reflect-open#5](https://github.com/Matsenas/reflect-open/pull/5) | Not offered | `crates/graph-io/src/conflict/own_writes.rs`, the self-conflict check in `icloud/sweep.rs`, and the draft guard in `conflict/union.rs`. Upstream's [#1736](https://github.com/team-reflect/reflect-open/pull/1736) covers plain prefix extensions only. The fork still adds reworded or trimmed self-conflicts and drafts under a different list marker. Worth offering upstream. |
 
 ## Keeping this current
 

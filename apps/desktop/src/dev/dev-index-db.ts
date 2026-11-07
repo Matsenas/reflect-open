@@ -1,14 +1,18 @@
-import sqlite3InitModule, { type Database, type SqlValue } from '@sqlite.org/sqlite-wasm'
+import sqlite3InitModule, {
+  type Database,
+  type Sqlite3Static,
+  type SqlValue,
+} from '@sqlite.org/sqlite-wasm'
 import {
   CLAIM_TIER,
   dateFromDailyPath,
   encodeTaskBreadcrumbs,
   foldGraphPath,
-  isCalendarDate,
   noteBasenameKey,
-  ReflectError,
+  AppError,
   type IndexedNote,
 } from '@reflect/core'
+import { isIsoDate } from '@reflect/utils'
 
 /**
  * The dev bridge's SQLite index: the real `crates/index-schema` migrations
@@ -35,6 +39,10 @@ export interface DevIndexDb {
   saveChatMessage: (conversation: DevChatConversation, message: DevChatMessageRow) => void
   /** Delete a conversation; its messages cascade (`chat_conversation_delete`). */
   deleteChatConversation: (id: string) => void
+  /**
+   * Release the database.
+   */
+  close: () => void
 }
 
 /** Mirrors `chat_write.rs`'s `ChatConversation` (camelCased over IPC). */
@@ -97,9 +105,13 @@ function run(db: Database, sql: string, params: readonly unknown[] = []): void {
   db.exec({ sql, bind: params.map(bindValue) })
 }
 
-/** Open an in-memory index database and apply every migration in order. */
+/** Load SQLite wasm and open an index database over it. */
 export async function createDevIndexDb(): Promise<DevIndexDb> {
-  const sqlite3 = await sqlite3InitModule()
+  return openDevIndexDb(await sqlite3InitModule())
+}
+
+/** Open an in-memory index database over `sqlite3` and apply every migration in order. */
+export function openDevIndexDb(sqlite3: Sqlite3Static): DevIndexDb {
   const db = new sqlite3.oo1.DB()
   // The schema relies on ON DELETE CASCADE (removing a `notes` row clears its
   // child tables); SQLite ships with foreign keys off per connection.
@@ -120,8 +132,8 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
       removeNote(db, note.path)
       run(
         db,
-        `INSERT INTO notes(path, id, title, title_key, path_key, kind, daily_date, is_private, is_pinned, pinned_order, has_conflict, gist_url, gist_stale, file_hash, mtime, updated_at, preview, has_content)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO notes(path, id, title, title_key, path_key, kind, daily_date, is_private, is_pinned, pinned_order, gist_url, gist_stale, file_hash, mtime, updated_at, preview, has_content)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           note.path,
           note.id,
@@ -133,7 +145,6 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
           note.isPrivate,
           note.isPinned,
           note.pinnedOrder,
-          note.hasConflict,
           note.gistUrl,
           note.gistStale,
           note.fileHash,
@@ -218,7 +229,7 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
     moveNote: (from, to) => {
       const occupied = db.selectValue('SELECT 1 FROM notes WHERE path = ?', [to])
       if (occupied !== undefined) {
-        throw new ReflectError('io', `cannot move note: ${to} is already indexed`)
+        throw new AppError('io', `cannot move note: ${to} is already indexed`)
       }
       // Mirrors the Rust caller: the child tables reference `notes(path)`, so
       // the parent-key update needs deferred FK checks — which only apply
@@ -244,7 +255,7 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
           ])
           const date = dateFromDailyPath(to)
           const restated = [
-            ...(date !== null && isCalendarDate(date)
+            ...(date !== null && isIsoDate(date)
               ? [{ key: date, tier: CLAIM_TIER.dailyDate }]
               : []),
             { key: noteBasenameKey(to), tier: CLAIM_TIER.basename },
@@ -333,6 +344,10 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
 
     deleteChatConversation: (id) => {
       run(db, 'DELETE FROM chat_conversations WHERE id = ?', [id])
+    },
+
+    close: () => {
+      db.close()
     },
   }
 }

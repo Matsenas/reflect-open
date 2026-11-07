@@ -1,22 +1,16 @@
+import { isIsoDate } from '@reflect/utils'
 import { z } from 'zod'
 import {
   markdownNoteReference,
   noteBasenameKey,
   wikiNoteReference,
 } from '../graph/note-reference.ts'
-import {
-  dateFromDailyPath,
-  foldGraphPath,
-  isCalendarDate,
-  isDaily,
-  isTemplatePath,
-} from '../graph/paths.ts'
+import { dateFromDailyPath, foldGraphPath, isDaily, isTemplatePath } from '../graph/paths.ts'
 import { hasSearchableChar } from '../lib/searchable-char.ts'
 import {
-  detectConflictMarkers,
+  canonicalEmail,
   encodeTaskPath,
   extractEmailFields,
-  foldEmail,
   foldKey,
   foldTag,
   gistBodyHash,
@@ -45,7 +39,7 @@ import { serializeWikiSuggestionAddress } from './suggest.ts'
 /**
  * Version of the projection {@link buildIndexedNote} produces. Bump it whenever
  * the rows derived from an *unchanged* file change — a new column, a changed
- * derivation — so `syncIndex` rebuilds graphs whose rows predate it. The
+ * derivation — so `NoteIndexer.sync` rebuilds graphs whose rows predate it. The
  * hash-based reconcile alone would never re-index an unchanged file, leaving
  * new columns at their migration defaults forever.
  *
@@ -53,7 +47,7 @@ import { serializeWikiSuggestionAddress } from './suggest.ts'
  * first stamped version; v2 rows also carry the 0004 pinned columns) ·
  * 3 — repairs `notes.mtime` 0 rows written by the watcher path before it
  * carried `modifiedMs` (hash-reconcile can never refresh them) ·
- * 4 — `notes.has_conflict` (sync conflict markers, Plan 12) ·
+ * 4 — retained `notes.has_conflict` column, no longer written or read ·
  * 5 — `notes.gist_url` + `notes.gist_stale` (gist publishing) ·
  * 6 — rendered Markdown escapes in titles, wiki-link targets, and previews ·
  * 7 — `tasks` projection (GFM checkboxes, Plan 18): existing notes carry no task
@@ -162,7 +156,7 @@ export type IndexedAlias = z.infer<typeof indexedAliasSchema>
 export const indexedEmailSchema = z.object({
   /** Display casing (as written in the field bullet). */
   email: z.string(),
-  /** Case-folded match key ({@link foldEmail}) — what resolution compares against. */
+  /** Case-folded match key ({@link canonicalEmail}) — what resolution compares against. */
   emailKey: z.string(),
 })
 export type IndexedEmail = z.infer<typeof indexedEmailSchema>
@@ -213,8 +207,6 @@ export const indexedNoteSchema = z.object({
   isPinned: z.boolean(),
   /** Explicit pin order (`pinned: <n>`); null for bare `pinned: true`. */
   pinnedOrder: z.number().nullable(),
-  /** The file carries Git conflict markers from a sync merge (Plan 12). */
-  hasConflict: z.boolean(),
   /** The note is not blank: it has display text, or a body the FTS can match. */
   hasContent: z.boolean(),
   /** The published gist's html url, or null when the note has none. */
@@ -314,7 +306,7 @@ export function projectNoteClaims(
     }
   }
   const date = isDaily(parsed.path) ? dateFromDailyPath(parsed.path) : null
-  if (date !== null && isCalendarDate(date)) {
+  if (date !== null && isIsoDate(date)) {
     claim(date, CLAIM_TIER.dailyDate)
   }
   claim(foldKey(parsed.title), CLAIM_TIER.title)
@@ -327,8 +319,7 @@ export function projectNoteClaims(
 
 /**
  * Flatten a parsed note into the index payload. `meta.source` is the raw
- * markdown the note was parsed from — conflict markers are detected on it
- * (not on the extracted plain text, which may reshape marker lines).
+ * markdown the note was parsed from.
  */
 export function buildIndexedNote(
   parsed: ParsedNote,
@@ -380,7 +371,6 @@ export function buildIndexedNote(
     isPrivate: parsed.frontmatter.private,
     isPinned: isPinned(parsed.frontmatter),
     pinnedOrder: pinnedOrder(parsed.frontmatter),
-    hasConflict: detectConflictMarkers(meta.source),
     gistUrl: parsed.frontmatter.gist?.url ?? null,
     // Staleness is a body-hash comparison (frontmatter excluded): publishing
     // writes the `gist` block itself, and a pin/private toggle is not an edit
@@ -397,7 +387,7 @@ export function buildIndexedNote(
     tags: parsed.tags.map((tag) => ({ tag, tagKey: foldTag(tag) })),
     aliases,
     claims: projectNoteClaims(parsed, aliases),
-    emails: extractEmailFields(body).map((email) => ({ email, emailKey: foldEmail(email) })),
+    emails: extractEmailFields(body).map((email) => ({ email, emailKey: canonicalEmail(email) })),
     // One reference can contribute several candidate spellings; the
     // projection stores each path once.
     assets: [...new Set(parsed.assets.map((asset) => asset.path))],

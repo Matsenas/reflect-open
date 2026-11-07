@@ -1,7 +1,6 @@
 import type { ReactElement, ReactNode } from 'react'
 import { Pin, PinOff, Trash2 } from 'lucide-react'
-import type { HighlightSegment } from '@reflect/core'
-import { formatRecencyLabel } from '@/lib/dates.ts'
+import { type HighlightSegment, formatRecencyLabel } from '@reflect/core'
 import { SWIPE_ACTION_WIDTH, SwipeActionButton } from '@/mobile/swipe-action-button.tsx'
 import { useRowSwipe } from '@/mobile/use-row-swipe.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
@@ -35,15 +34,15 @@ interface SwipeableNoteRowProps {
 }
 
 function renderHighlightedSegments(segments: HighlightSegment[]): ReactNode {
-  return segments.map((segment, index) =>
-    segment.highlighted ? (
+  return segments.map((segment, index) => {
+    return segment.highlighted ? (
       <mark key={index} className="rounded-sm bg-primary/15 text-text">
         {segment.text}
       </mark>
     ) : (
       <span key={index}>{segment.text}</span>
-    ),
-  )
+    )
+  })
 }
 
 /**

@@ -11,10 +11,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import {
-  useConnectGithubWizard,
-  type ConnectWizardStep,
-} from '@/hooks/use-connect-github-wizard.ts'
+import { useConnectGithubWizard } from '@/hooks/use-connect-github-wizard.ts'
+import type { ConnectWizardStep } from '@reflect/app'
 
 interface ConnectGithubDialogProps {
   /** A suggested name for a newly created backup repo (from the graph name). */
@@ -25,8 +23,8 @@ interface ConnectGithubDialogProps {
 }
 
 const STEP_DESCRIPTIONS: Record<ConnectWizardStep, string> = {
-  repo: 'Back up this graph to a private GitHub repository.',
-  auth: 'Sign in so Reflect can push your backups.',
+  repo: 'Sync this graph through a private GitHub repository.',
+  auth: 'Sign in so Reflect can sync with it.',
   finish: 'Connecting your repository…',
 }
 

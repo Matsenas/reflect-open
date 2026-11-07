@@ -7,10 +7,9 @@ import {
   type ReactElement,
 } from 'react'
 import { MobileScreen } from '@/mobile/mobile-screen.tsx'
-import type { AllNotesFilters } from '@/mobile/search-filters/filter-state.ts'
+import type { AllNotesFilters, Route } from '@reflect/app'
 import { BACK_SWIPE_SETTLE_MS, useBackSwipe, type BackSwipeState } from '@/mobile/use-back-swipe.ts'
 import { usePrefersReducedMotion } from '@/mobile/use-reduced-motion.ts'
-import type { Route } from '@/routing/route.ts'
 import { RouterFreeze, useRouter } from '@/routing/router.tsx'
 import './mobile-stack.css'
 
@@ -39,7 +38,12 @@ interface StackLayer {
  * else (daily, All, search-as-All) is a root.
  */
 function isStacked(route: Route): boolean {
-  return route.kind === 'note' || route.kind === 'settings' || route.kind === 'graphs'
+  return (
+    route.kind === 'note' ||
+    route.kind === 'settings' ||
+    route.kind === 'graphs' ||
+    route.kind === 'licenses'
+  )
 }
 
 /**
@@ -56,6 +60,8 @@ function layerKey(route: Route): string {
       return 'settings'
     case 'graphs':
       return 'graphs'
+    case 'licenses':
+      return 'licenses'
     case 'allNotes':
     case 'search':
       return 'all'
@@ -268,8 +274,9 @@ export function MobileStack(props: MobileStackProps): ReactElement {
     if (!node) {
       return
     }
-    const isStackLayer = (target: EventTarget | null): boolean =>
-      target instanceof HTMLElement && target.classList.contains('mobile-stack-layer')
+    const isStackLayer = (target: EventTarget | null): boolean => {
+      return target instanceof HTMLElement && target.classList.contains('mobile-stack-layer')
+    }
     const onAnimationEnd = (event: Event): void => {
       if (isStackLayer(event.target)) {
         finishTransition()

@@ -1,35 +1,39 @@
-import { upsertFrontmatter } from '@reflect/core'
-import { frontmatterPatchToYaml, type FrontmatterPatch } from '@/editor/note-session.ts'
-import { render } from 'vitest-browser-react'
+import {
+  frontmatterPatchToYaml,
+  isOstensiblyEmptyNoteSource,
+  upsertFrontmatter,
+  type NoteDocumentService,
+} from '@reflect/core'
+import { createTestCoreServices } from '@reflect/core/testing'
 import { userEvent } from 'vitest/browser'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TooltipProvider } from '@/components/ui/tooltip.tsx'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { NoteAliasesSection } from './note-aliases-section.tsx'
 
-const noteSource = vi.hoisted(() => ({ value: '# A\n' }))
-const readNoteSource = vi.hoisted(() => vi.fn(async () => noteSource.value))
-const commitNoteFrontmatter = vi.hoisted(() =>
-  vi.fn<(path: string, patch: FrontmatterPatch, generation: number) => Promise<void>>(),
-)
-vi.mock('@/lib/note-frontmatter.ts', () => ({ readNoteSource, commitNoteFrontmatter }))
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  hasBridge: () => true,
-}))
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 7 } }),
-}))
+const noteSource = { value: '# A\n' }
+const readNoteSource = vi.fn<NoteDocumentService['readSource']>()
+const commitNoteFrontmatter = vi.fn<NoteDocumentService['commitFrontmatter']>()
 
 async function renderSection(isAdding: boolean) {
   const onAddingDone = vi.fn()
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const view = await render(
-    <TooltipProvider>
-      <QueryClientProvider client={client}>
-        <NoteAliasesSection path="notes/a.md" isAdding={isAdding} onAddingDone={onAddingDone} />
-      </QueryClientProvider>
-    </TooltipProvider>,
+  const core = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    noteDocuments: {
+      readSource: readNoteSource,
+      readExisting: async (path) => await readNoteSource(path),
+      commitFrontmatter: commitNoteFrontmatter,
+      commitSourceEdit: () => Promise.reject(new Error('commitSourceEdit is not stubbed')),
+      isOstensiblyEmpty: isOstensiblyEmptyNoteSource,
+    },
+  })
+  const view = await renderInApp(
+    <NoteAliasesSection path="notes/a.md" isAdding={isAdding} onAddingDone={onAddingDone} />,
+    {
+      core,
+      graph: { root: '/g', name: 'g', generation: 7 },
+      route: { kind: 'note', path: 'notes/a.md' },
+    },
   )
   return { ...view, onAddingDone }
 }
@@ -37,9 +41,10 @@ async function renderSection(isAdding: boolean) {
 beforeEach(() => {
   window.sessionStorage.clear()
   noteSource.value = '# A\n'
-  readNoteSource.mockReset().mockImplementation(async () => noteSource.value)
-  commitNoteFrontmatter.mockReset().mockImplementation(async (_path, patch) => {
+  readNoteSource.mockReset().mockImplementation(() => Promise.resolve(noteSource.value))
+  commitNoteFrontmatter.mockReset().mockImplementation((_path, patch) => {
     noteSource.value = upsertFrontmatter(noteSource.value, frontmatterPatchToYaml(patch))
+    return Promise.resolve()
   })
 })
 
@@ -67,9 +72,13 @@ describe('NoteAliasesSection', () => {
     const input = view.getByRole('textbox', { name: 'New alias' })
     await expect.element(input).toHaveFocus()
     await userEvent.type(input, ' QBR {Enter}')
-    await vi.waitFor(() =>
-      expect(commitNoteFrontmatter).toHaveBeenCalledWith('notes/a.md', { aliases: ['QBR'] }, 7),
-    )
+    await vi.waitFor(() => {
+      return expect(commitNoteFrontmatter).toHaveBeenCalledWith(
+        'notes/a.md',
+        { aliases: ['QBR'] },
+        7,
+      )
+    })
     expect(view.onAddingDone).toHaveBeenCalled()
     await view.unmount()
   })
@@ -78,9 +87,13 @@ describe('NoteAliasesSection', () => {
     const view = await renderSection(true)
     await userEvent.type(view.getByRole('textbox', { name: 'New alias' }), 'QBR')
     await userEvent.click(view.getByRole('button', { name: 'Add alias' }))
-    await vi.waitFor(() =>
-      expect(commitNoteFrontmatter).toHaveBeenCalledWith('notes/a.md', { aliases: ['QBR'] }, 7),
-    )
+    await vi.waitFor(() => {
+      return expect(commitNoteFrontmatter).toHaveBeenCalledWith(
+        'notes/a.md',
+        { aliases: ['QBR'] },
+        7,
+      )
+    })
     await view.unmount()
   })
 
@@ -105,9 +118,13 @@ describe('NoteAliasesSection', () => {
     noteSource.value = '---\naliases:\n  - QBR\n  - Budget\n---\n# A\n'
     const view = await renderSection(false)
     await userEvent.click(view.getByRole('button', { name: 'Remove alias QBR' }))
-    await vi.waitFor(() =>
-      expect(commitNoteFrontmatter).toHaveBeenCalledWith('notes/a.md', { aliases: ['Budget'] }, 7),
-    )
+    await vi.waitFor(() => {
+      return expect(commitNoteFrontmatter).toHaveBeenCalledWith(
+        'notes/a.md',
+        { aliases: ['Budget'] },
+        7,
+      )
+    })
     await expect.element(view.getByText('QBR')).not.toBeInTheDocument()
     await view.unmount()
   })

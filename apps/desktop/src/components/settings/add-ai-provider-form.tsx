@@ -9,6 +9,7 @@ import {
   isHttpBaseUrl,
   isPlainHttpRemoteBaseUrl,
   type AiProviderId,
+  type NewAiProvider,
   type OpenAiRegion,
 } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
@@ -23,7 +24,6 @@ import {
 } from '@/components/ui/select.tsx'
 import { InlineAlert } from '@/components/inline-alert.tsx'
 import { useAddAiProviderSubmit } from '@/hooks/use-add-ai-provider-submit.ts'
-import type { NewAiProvider } from '@/hooks/use-ai-providers.ts'
 import { ModelCombobox } from './model-combobox.tsx'
 import { OpenAiRegionSelect } from './openai-region-select.tsx'
 

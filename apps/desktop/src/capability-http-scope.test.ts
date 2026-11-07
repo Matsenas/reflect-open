@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { URLPattern } from 'urlpattern-polyfill'
 
 /**
  * Pins the URLPattern semantics of the `http:default` capability scope.
@@ -25,10 +24,9 @@ const capability = JSON.parse(
   readFileSync(new URL('../src-tauri/capabilities/default.json', import.meta.url), 'utf8'),
 ) as { permissions: (string | Permission)[] }
 
-const httpPermission = capability.permissions.find(
-  (permission): permission is Permission =>
-    typeof permission === 'object' && permission.identifier === 'http:default',
-)
+const httpPermission = capability.permissions.find((permission): permission is Permission => {
+  return typeof permission === 'object' && permission.identifier === 'http:default'
+})
 
 const patterns = (httpPermission?.allow ?? []).map((entry) => new URLPattern(entry.url))
 

@@ -1,4 +1,4 @@
-import type { Route } from '@/routing/route.ts'
+import type { Route } from '@reflect/app'
 
 /** What the AppShell's right context region should describe for a route. */
 export type ContextSidebarTarget = { kind: 'daily'; date: string } | { kind: 'note'; path: string }
@@ -24,6 +24,7 @@ export function contextSidebarTarget(route: Route, today: string): ContextSideba
     case 'chat':
     case 'settings':
     case 'graphs':
+    case 'licenses':
       return null
   }
 }

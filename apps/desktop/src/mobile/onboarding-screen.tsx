@@ -44,18 +44,22 @@ export function MobileOnboardingScreen(): ReactElement {
   const icloudGraphs = mobileStorageInfo?.icloudGraphRoots ?? []
 
   function runChoice(choice: Exclude<PendingChoice, null>, task: () => Promise<void>): void {
-    setPendingChoice(choice)
-    void action.run(task).finally(() => setPendingChoice(null))
+    void action
+      .run(async () => {
+        // Only a run that actually starts marks its button.
+        setPendingChoice(choice)
+        await task()
+      })
+      .then((ran) => {
+        // `run` never rejects, so this covers failure too.
+        if (ran) {
+          setPendingChoice(null)
+        }
+      })
   }
 
   return (
-    <div
-      className="flex min-h-dvh w-screen overflow-auto bg-surface-app px-5 text-text"
-      style={{
-        paddingTop: 'max(env(safe-area-inset-top), 1.5rem)',
-        paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)',
-      }}
-    >
+    <div className="flex min-h-dvh w-screen overflow-auto bg-surface-app px-safe-offset-5 pt-safe-or-6 pb-safe-or-4 text-text">
       <div className="mx-auto flex w-full max-w-md flex-col gap-7 py-6">
         <header className="flex flex-col gap-4 pt-2">
           <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -80,9 +84,9 @@ export function MobileOnboardingScreen(): ReactElement {
               busy={action.pending}
               pendingChoice={pendingChoice}
               onOpen={(root) => runChoice(root, () => completeOnboarding('icloud', root))}
-              onCreate={(root) =>
+              onCreate={(root) => {
                 runChoice('icloud-create', () => completeOnboarding('icloud', root))
-              }
+              }}
             />
           ) : (
             <IcloudUnavailableSection />

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ParsedTask } from './task-ast.ts'
+import type { ParsedTask } from './task-model.ts'
 
 /**
  * The markdown document model (Plan 03) — the canonical, parser-agnostic shape
@@ -167,15 +167,6 @@ export interface AssetRef extends Span {
   /** The path as written in the link (e.g. `assets/img.png`). */
   path: string
 }
-
-/** Version of the extraction contract; bump on breaking shape changes.
- * 1 — Plan 03 baseline · 2 — `tasks: ParsedTask[]` (with `dueDate`) added (Plan 18) ·
- * 3 — tasks limited to round Meowdown `+ [ ]` / `+ [x]` syntax; square checklist
- * checkboxes are excluded.
- * 4 — task rows carry parent outline/list breadcrumbs.
- * 5 — tasks are projected from the block AST (`ParsedTask`): addressed by AST
- * path, round tasks inside blockquotes included, text kept as Markdown. */
-export const PARSED_NOTE_VERSION = 5
 
 /** The full parse of one note — the stable contract downstream plans depend on. */
 export interface ParsedNote {

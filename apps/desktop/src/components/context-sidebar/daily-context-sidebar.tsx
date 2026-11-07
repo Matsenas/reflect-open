@@ -7,7 +7,7 @@ import { PublishedUrlSection } from './published-url-section.tsx'
 import { SimilarNotesSection } from './similar-notes-section.tsx'
 import { useToday } from '@/lib/use-today.ts'
 import { cn } from '@/lib/utils.ts'
-import { hasMacosTitleBarOverlay } from '@/lib/window-chrome.ts'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface DailyContextSidebarProps {
   /** The day the sidebar describes — a validated ISO date from the route. */
@@ -24,14 +24,16 @@ interface DailyContextSidebarProps {
  */
 export function DailyContextSidebar({ date }: DailyContextSidebarProps): ReactElement {
   const today = useToday()
+  const { platform } = useCoreServices()
 
   return (
     <div
+      data-testid="daily-context-sidebar"
       className={cn(
         'flex flex-col text-text',
         // The calendar's controls must clear the WindowDragRegion strip when
         // the macOS title bar is overlaid.
-        hasMacosTitleBarOverlay ? 'pt-0' : 'pt-2',
+        platform.hasMacosTitleBarOverlay ? 'pt-0' : 'pt-2',
       )}
     >
       <DayCalendar selectedDate={date} today={today} />

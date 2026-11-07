@@ -1,10 +1,11 @@
 import { z } from 'zod'
-import { ReflectError } from '../errors.ts'
+import { safeParseJson } from '@reflect/utils'
+import { AppError } from '../errors.ts'
 import type { TranscriptionProvider } from './provider-config.ts'
 
 /**
  * The HTTP substrate under audio transcription: one guarded `send`, one
- * error ladder, one rejection type. Both provider legs (`ai/transcribe`)
+ * error ladder, one rejection type. Both provider legs (`ai/transcription-service`)
  * issue every request through {@link send}, which is where two cross-cutting
  * contracts live:
  *
@@ -56,7 +57,7 @@ export async function send(
   options: SendOptions = {},
 ): Promise<Response> {
   if (options.isStale?.() === true) {
-    throw new ReflectError('network', 'the graph session ended mid-transcription')
+    throw new AppError('network', 'the graph session ended mid-transcription')
   }
   const timeoutMs = options.timeoutMs ?? TRANSCRIPTION_TIMEOUT_MS
   try {
@@ -73,12 +74,9 @@ export async function send(
         (cause.name === 'TimeoutError' || cause.name === 'AbortError')) ||
       (cause instanceof Error && cause.message === 'Request cancelled')
     ) {
-      throw new ReflectError(
-        'network',
-        `transcription request timed out after ${timeoutMs / 1000}s`,
-      )
+      throw new AppError('network', `transcription request timed out after ${timeoutMs / 1000}s`)
     }
-    throw new ReflectError('network', cause instanceof Error ? cause.message : String(cause))
+    throw new AppError('network', cause instanceof Error ? cause.message : String(cause))
   }
 }
 
@@ -90,7 +88,7 @@ export async function send(
  * limits, and retired-model 404s stay plain `network` errors; those heal on
  * a later attempt.
  */
-export class TranscriptionRejectedError extends ReflectError {
+export class TranscriptionRejectedError extends AppError {
   constructor(message: string) {
     super('parse', message)
     this.name = 'TranscriptionRejectedError'
@@ -109,7 +107,7 @@ export function isTranscriptionRejected(value: unknown): value is TranscriptionR
  * With segment-sized uploads this should never fire; it is a guard against
  * budget drift, not a mechanism.
  */
-export class TranscriptionOversizeError extends ReflectError {
+export class TranscriptionOversizeError extends AppError {
   constructor(message: string) {
     super('parse', message)
     this.name = 'TranscriptionOversizeError'
@@ -146,7 +144,7 @@ const errorBodySchema = z.object({
  * rejection as auth only costs a retry, the reverse costs the recording.
  */
 function isInvalidKeyBody(body: string): boolean {
-  const parsed = errorBodySchema.safeParse(safeJson(body))
+  const parsed = errorBodySchema.safeParse(safeParseJson(body))
   if (!parsed.success) {
     return false
   }
@@ -155,19 +153,12 @@ function isInvalidKeyBody(body: string): boolean {
 }
 
 /** Classify a non-OK provider response into the fates callers act on. */
-export function httpError(
-  provider: TranscriptionProvider,
-  status: number,
-  body: string,
-): ReflectError {
+export function httpError(provider: TranscriptionProvider, status: number, body: string): AppError {
   if (status === 401 || status === 403) {
-    return new ReflectError('auth', `${provider} rejected the API key (${status})`)
+    return new AppError('auth', `${provider} rejected the API key (${status})`)
   }
   if (provider === 'google' && status === 400 && isInvalidKeyBody(body)) {
-    return new ReflectError(
-      'auth',
-      `google rejected the API key (400): ${providerErrorMessage(body)}`,
-    )
+    return new AppError('auth', `google rejected the API key (400): ${providerErrorMessage(body)}`)
   }
   if (status === 413) {
     return new TranscriptionOversizeError(
@@ -179,7 +170,7 @@ export function httpError(
       `${provider} rejected the recording (${status}): ${providerErrorMessage(body)}`,
     )
   }
-  return new ReflectError(
+  return new AppError(
     'network',
     `${provider} transcription failed (${status}): ${providerErrorMessage(body)}`,
   )
@@ -187,15 +178,8 @@ export function httpError(
 
 /** The provider's own error message when the body carries one, else the raw body. */
 export function providerErrorMessage(body: string): string {
-  const parsed = z.object({ error: z.object({ message: z.string() }) }).safeParse(safeJson(body))
+  const parsed = z
+    .object({ error: z.object({ message: z.string() }) })
+    .safeParse(safeParseJson(body))
   return parsed.success ? parsed.data.error.message : body.slice(0, 200)
-}
-
-/** `JSON.parse` that answers `null` instead of throwing — for probing bodies. */
-export function safeJson(body: string): unknown {
-  try {
-    return JSON.parse(body)
-  } catch {
-    return null
-  }
 }

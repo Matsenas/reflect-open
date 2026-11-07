@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Square, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
-import { formatRecordingElapsed } from '@/lib/recording-time.ts'
+import { formatElapsed } from '@reflect/utils'
 import { useMobileAudioMemo } from '@/mobile/audio-memo-provider.tsx'
 import { RecordingLevelWaveform } from '@/mobile/recording-level-waveform.tsx'
 import { useRouter } from '@/routing/router.tsx'
@@ -79,19 +79,19 @@ function KeySetupControls({ memo }: LiveRecordingControlsProps): ReactElement {
 
 function LiveRecordingControls({ memo }: LiveRecordingControlsProps): ReactElement {
   const [discardArmed, setDiscardArmed] = useState(false)
-  const discardResetTimer = useRef<number | null>(null)
+  const discardResetTimerRef = useRef<number | null>(null)
 
   const clearDiscardReset = (): void => {
-    if (discardResetTimer.current !== null) {
-      window.clearTimeout(discardResetTimer.current)
-      discardResetTimer.current = null
+    if (discardResetTimerRef.current !== null) {
+      window.clearTimeout(discardResetTimerRef.current)
+      discardResetTimerRef.current = null
     }
   }
 
   useEffect(
     () => () => {
-      if (discardResetTimer.current !== null) {
-        window.clearTimeout(discardResetTimer.current)
+      if (discardResetTimerRef.current !== null) {
+        window.clearTimeout(discardResetTimerRef.current)
       }
     },
     [],
@@ -101,14 +101,14 @@ function LiveRecordingControls({ memo }: LiveRecordingControlsProps): ReactEleme
     if (!discardArmed) {
       setDiscardArmed(true)
       clearDiscardReset()
-      discardResetTimer.current = window.setTimeout(() => {
+      discardResetTimerRef.current = window.setTimeout(() => {
         setDiscardArmed(false)
-        discardResetTimer.current = null
+        discardResetTimerRef.current = null
       }, 3000)
       return
     }
     clearDiscardReset()
-    memo.cancelRecording()
+    void memo.cancelRecording()
   }
 
   return (
@@ -120,9 +120,7 @@ function LiveRecordingControls({ memo }: LiveRecordingControlsProps): ReactEleme
           <p className="text-sm text-text-muted">Waiting for the microphone…</p>
         )}
       </div>
-      <span className="text-lg font-medium tabular-nums">
-        {formatRecordingElapsed(memo.elapsedMs)}
-      </span>
+      <span className="text-lg font-medium tabular-nums">{formatElapsed(memo.elapsedMs)}</span>
       <div className="flex w-full flex-col items-center gap-3">
         <Button
           variant="destructive"

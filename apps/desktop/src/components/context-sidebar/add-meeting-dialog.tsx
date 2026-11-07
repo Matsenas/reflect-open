@@ -1,15 +1,5 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useActionState, useEffect, useState, type ReactElement } from 'react'
 import { X } from 'lucide-react'
-import {
-  addMeetingToDaily,
-  contactsAuthorizationStatus,
-  defaultAttendees,
-  errorMessage,
-  isContactsReadable,
-  resolveMeetingAttendees,
-  type CalendarEvent,
-  type MeetingAttendee,
-} from '@reflect/core'
 import { InlineAlert } from '@/components/inline-alert.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
@@ -22,9 +12,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import { formatTimeOfDay } from '@/lib/dates.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import {
+  defaultAttendees,
+  errorMessage,
+  mergeAttendeeUpgrades,
+  withAttendee,
+  type CalendarEvent,
+  type MeetingAttendee,
+  formatTimeOfDay,
+} from '@reflect/core'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { AttendeeCombobox } from './attendee-combobox.tsx'
 
 interface AddMeetingDialogProps {
@@ -49,12 +47,10 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-text-secondary'
  */
 export function AddMeetingDialog({ date, event, onClose }: AddMeetingDialogProps): ReactElement {
   const { settings } = useSettings()
-  const { graph } = useGraph()
+  const { contacts, meetings, logger, graphSession } = useCoreServices()
   const [name, setName] = useState(event.title)
   const [attendees, setAttendees] = useState<MeetingAttendee[]>(() => defaultAttendees(event))
   const [createNote, setCreateNote] = useState(event.recurring)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   // Upgrade the prefilled chips once attendee resolution answers: an invite
   // email an existing note owns swaps the calendar's spelling for the note
@@ -65,86 +61,72 @@ export function AddMeetingDialog({ date, event, onClose }: AddMeetingDialogProps
   useEffect(() => {
     let cancelled = false
     const upgradeAttendees = async (): Promise<void> => {
-      const lookupContacts =
-        settings.contactsEnabled && isContactsReadable(await contactsAuthorizationStatus())
-      const prefilled = defaultAttendees(event)
-      const resolved = await resolveMeetingAttendees(prefilled, lookupContacts)
+      const upgrades = await meetings.resolvePrefilledAttendees(defaultAttendees(event))
       if (cancelled) {
         return
       }
-      const upgrades = new Map(
-        prefilled.map((original, index) => [original.name, resolved[index] ?? original]),
-      )
-      setAttendees((current) => {
-        const seen = new Set<string>()
-        const merged: MeetingAttendee[] = []
-        for (const attendee of current) {
-          const upgraded = upgrades.get(attendee.name) ?? attendee
-          const key = upgraded.name.toLowerCase()
-          if (seen.has(key)) {
-            continue
-          }
-          seen.add(key)
-          merged.push(upgraded)
-        }
-        return merged
-      })
+      setAttendees((current) => mergeAttendeeUpgrades(current, upgrades))
     }
     upgradeAttendees().catch((cause: unknown) => {
-      console.error('attendee resolution failed:', cause)
+      logger.error('attendee resolution failed:', cause)
     })
     return () => {
       cancelled = true
     }
-  }, [event, settings.contactsEnabled])
+  }, [event, logger, meetings, settings.contactsEnabled])
 
   const addAttendee = (attendee: MeetingAttendee): void => {
-    setAttendees((current) =>
-      current.some((existing) => existing.name.toLowerCase() === attendee.name.toLowerCase())
-        ? current
-        : [...current, attendee],
-    )
+    setAttendees((current) => withAttendee(current, attendee))
   }
 
   const removeAttendee = (attendeeName: string): void => {
     setAttendees((current) => current.filter((existing) => existing.name !== attendeeName))
   }
 
-  const canSubmit = graph !== null && name.trim() !== '' && !submitting
-
-  const submit = async (): Promise<void> => {
-    if (graph === null) {
-      return
-    }
-    setSubmitting(true)
-    setError(null)
-    try {
-      // The permission state is read at submit time, not dialog mount — the
-      // cached query may still be in flight (or stale after a System
-      // Settings trip), and a quick submit must not skip the pre-fill.
-      const lookupContacts =
-        settings.contactsEnabled && isContactsReadable(await contactsAuthorizationStatus())
-      await addMeetingToDaily({
-        date,
-        title: name,
-        attendees,
-        backlinkMeeting: createNote,
-        lookupContacts,
-        startTime: formatTimeOfDay(new Date(event.startsAt), settings.timeFormat),
-        generation: graph.generation,
-      })
+  // The form action returns the inline error (or `null`), so a retry clears
+  // the previous one. Success closes the dialog from inside the action.
+  const [error, submitAction, submitting] = useActionState(
+    async (previous: string | null): Promise<string | null> => {
+      const { session } = graphSession.getState()
+      if (session === null) {
+        return previous
+      }
+      try {
+        // The permission state is re-read at submit time, not dialog mount: it
+        // may be stale after a System Settings trip, and a quick submit must
+        // not skip the pre-fill.
+        await contacts.refresh()
+        if (graphSession.getState().session !== session) {
+          onClose()
+          return null
+        }
+        const lookupContacts = meetings.canLookupContacts()
+        await meetings.addMeetingToDaily({
+          date,
+          title: name,
+          attendees,
+          backlinkMeeting: createNote,
+          lookupContacts,
+          startTime: formatTimeOfDay(new Date(event.startsAt), settings.timeFormat),
+        })
+      } catch (cause) {
+        return errorMessage(cause)
+      }
       onClose()
-    } catch (cause) {
-      setError(errorMessage(cause))
-      setSubmitting(false)
-    }
-  }
+      return null
+    },
+    null,
+  )
+
+  const canSubmit = name.trim() !== '' && !submitting
 
   return (
     <Dialog
       open
       onOpenChange={(isOpen) => {
-        if (!isOpen) {
+        // Not while submitting: the in-flight submit still writes the meeting
+        // and calls `onClose` when it settles.
+        if (!isOpen && !submitting) {
           onClose()
         }
       }}
@@ -156,13 +138,7 @@ export function AddMeetingDialog({ date, event, onClose }: AddMeetingDialogProps
             {formatTimeOfDay(new Date(event.startsAt), settings.timeFormat)}
           </DialogDescription>
         </DialogHeader>
-        <form
-          onSubmit={(submitEvent) => {
-            submitEvent.preventDefault()
-            void submit()
-          }}
-          className="space-y-4"
-        >
+        <form action={submitAction} className="space-y-4">
           <div className="space-y-1.5">
             <label htmlFor="add-meeting-name" className={FIELD_LABEL_CLASS}>
               Meeting name
@@ -211,7 +187,7 @@ export function AddMeetingDialog({ date, event, onClose }: AddMeetingDialogProps
           </label>
           {error !== null && <InlineAlert tone="error">{error}</InlineAlert>}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               Cancel
             </Button>
             <Button type="submit" disabled={!canSubmit}>

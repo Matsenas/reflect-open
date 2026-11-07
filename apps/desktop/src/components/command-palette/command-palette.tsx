@@ -1,19 +1,16 @@
 import { memo, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { Command } from 'cmdk'
-import { displayNoteTitle, parseHighlights } from '@reflect/core'
 import { CalendarDays, FileText } from 'lucide-react'
 import { getIsComposing, isModEvent } from '@meowdown/core'
 import { Kbd } from '@/components/kbd.tsx'
 import { ShortcutKeys } from '@/components/shortcut-keys.tsx'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
-import { runCommand } from '@/lib/commands/registry.ts'
 import type { CommandContext } from '@/lib/commands/types.ts'
-import { formatDayLabel } from '@/lib/dates.ts'
+import { displayNoteTitle, parseHighlights, formatDayLabel } from '@reflect/core'
+import { routeForPath, type NoteEntry } from '@reflect/app'
 import { cn } from '@/lib/utils.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
-import { routeForPath } from '@/routing/route.ts'
 import { COMMAND_ICONS, FALLBACK_COMMAND_ICON } from './command-icons.ts'
-import type { NoteEntry } from './entries.ts'
 import { NotePreview } from './note-preview.tsx'
 import { usePalette } from './palette-provider.tsx'
 import { usePaletteResults } from './use-palette-results.ts'
@@ -37,15 +34,15 @@ interface CommandPaletteProps {
 const Snippet = memo(function Snippet({ snippet }: { snippet: string }): ReactElement {
   return (
     <span className="block truncate text-xs text-text-muted">
-      {parseHighlights(snippet).map((segment, i) =>
-        segment.highlighted ? (
+      {parseHighlights(snippet).map((segment, i) => {
+        return segment.highlighted ? (
           <mark key={i} className="rounded-sm bg-accent-soft px-0.5">
             {segment.text}
           </mark>
         ) : (
           <span key={i}>{segment.text}</span>
-        ),
-      )}
+        )
+      })}
     </span>
   )
 })
@@ -257,7 +254,7 @@ export function CommandPalette({ context }: CommandPaletteProps): ReactElement |
                         onSelect={() => {
                           pendingNoteOpenRef.current = null
                           closePalette()
-                          void runCommand(command.id, context)
+                          void context.app.commands.run(command.id, context)
                         }}
                         className="reflect-palette-item"
                       >

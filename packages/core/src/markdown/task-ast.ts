@@ -3,7 +3,6 @@ import {
   parseMarkdownAst,
   serializeMarkdownAst,
   walkMarkdownAst,
-  type MarkdownAstPath,
   type MarkdownBlock,
   type MarkdownBlockquote,
   type MarkdownDocument,
@@ -13,13 +12,22 @@ import {
   type MarkdownTableCell,
 } from '@meowdown/markdown'
 import { DefaultMap } from '@ocavue/utils'
+import type { LoggerService } from '../ports/logger-service.ts'
 import { appendBlock } from './append-section.ts'
 import { splitFrontmatter } from './frontmatter.ts'
 import { renderInlineText } from './inline-text.ts'
 import { foldKey } from './keys.ts'
 import { normalizeWikiTarget } from './resolve.ts'
 import { scanInlineWikiLinks } from './scan.ts'
+import type { ParsedTask, TaskLocator, TaskSnapshot } from './task-model.ts'
 import { isSameTaskPath } from './task-path.ts'
+
+/**
+ * Where the task functions report a locator that names several identical tasks.
+ */
+export interface TaskLogContext {
+  readonly logger: LoggerService
+}
 
 /** The task a caller addressed is not in the note anymore: the write is refused. */
 export class TaskStaleError extends Error {
@@ -126,11 +134,6 @@ export function getTaskDueDate(markdown: string): string | null {
   return null
 }
 
-/** A round task as the projection stores it: its snapshot plus its explicit due date. */
-export interface ParsedTask extends TaskSnapshot {
-  dueDate: string | null
-}
-
 /** The round tasks of a note body, in document order. */
 export function projectTasks(body: string): ParsedTask[] {
   return getRoundTasks(parseMarkdownAst(body)).map((entry) => ({
@@ -162,13 +165,6 @@ export function renderTaskSnapshot(snapshot: TaskSnapshot): TaskRow {
   }
 }
 
-/** Where a task was last seen; `markdown` and `checked` are the staleness guard. */
-export interface TaskLocator {
-  astPath: MarkdownAstPath
-  markdown: string
-  checked: boolean
-}
-
 export type InsertPosition =
   | { kind: 'documentEnd' }
   /** The end of the task's context: its parent list item, or at the root the end of its own list. */
@@ -190,12 +186,6 @@ export interface TaskEditInsert {
 }
 
 export type TaskEdit = TaskEditItem | TaskEditInsert
-
-/** A round task as it stands in a note body. */
-export interface TaskSnapshot extends TaskLocator {
-  /** The headings above the task, then its ancestor list items' first paragraphs, outermost first. */
-  breadcrumbs: readonly string[]
-}
 
 /** One pre-edit round task and where the edit left it: null once removed or no longer a task. */
 export interface TaskMove {
@@ -219,8 +209,12 @@ export interface TaskEditResult {
  * follows its task by content instead of claiming whatever task now sits at
  * its path.
  */
-export function findTaskMove(moves: readonly TaskMove[], task: TaskLocator): TaskMove | undefined {
-  return resolveTaskLocator(moves, (move) => move.from, task)
+export function findTaskMove(
+  ctx: TaskLogContext,
+  moves: readonly TaskMove[],
+  task: TaskLocator,
+): TaskMove | undefined {
+  return resolveTaskLocator(ctx, moves, (move) => move.from, task)
 }
 
 /** A slot for a new item: right after a block, or at the end of a container. */
@@ -236,7 +230,11 @@ type SlotTarget =
  * pre-edit tree before anything changes, so one batch can edit a task and then
  * toggle it, or resolve a task and insert next to it, with one locator each.
  */
-export function applyTaskEdits(source: string, edits: readonly TaskEdit[]): TaskEditResult {
+export function applyTaskEdits(
+  ctx: TaskLogContext,
+  source: string,
+  edits: readonly TaskEdit[],
+): TaskEditResult {
   const { document, bodyOffset } = parseEditable(source)
 
   const before = getRoundTasks(document)
@@ -244,13 +242,13 @@ export function applyTaskEdits(source: string, edits: readonly TaskEdit[]): Task
   // Resolve every address first, then mutate in order.
   const mutations = edits.map((edit): (() => void) => {
     if (edit.kind === 'insert') {
-      const slot = resolveInsertPosition(document, before, edit.at)
+      const slot = resolveInsertPosition(ctx, document, before, edit.at)
       const markdown = requireParagraphMarkdown(edit.markdown)
       return () => {
         created.push(insertItem(document, slot, createListItem('task', '+', markdown)))
       }
     }
-    const { node } = locateTask(before, edit.task)
+    const { node } = locateTask(ctx, before, edit.task)
     return () => applyItemEdit(document, node, edit)
   })
   for (const mutate of mutations) {
@@ -324,6 +322,7 @@ function hasSameContent(entry: TaskLocator, locator: TaskLocator): boolean {
  * the guess is logged.
  */
 function resolveTaskLocator<T>(
+  ctx: TaskLogContext,
   entries: readonly T[],
   locatorOf: (entry: T) => TaskLocator,
   locator: TaskLocator,
@@ -337,15 +336,19 @@ function resolveTaskLocator<T>(
   }
   const byContent = entries.filter((entry) => hasSameContent(locatorOf(entry), locator))
   if (byContent.length > 1) {
-    console.warn(
+    ctx.logger.warn(
       `task is ambiguous, taking the first of ${byContent.length}: ${JSON.stringify(locator.markdown)}`,
     )
   }
   return byContent[0]
 }
 
-function locateTask(before: readonly TaskEntry[], locator: TaskLocator): TaskEntry {
-  const match = resolveTaskLocator(before, (entry) => entry, locator)
+function locateTask(
+  ctx: TaskLogContext,
+  before: readonly TaskEntry[],
+  locator: TaskLocator,
+): TaskEntry {
+  const match = resolveTaskLocator(ctx, before, (entry) => entry, locator)
   if (match === undefined) {
     throw new TaskStaleError(`task is no longer in the note: ${JSON.stringify(locator.markdown)}`)
   }
@@ -353,6 +356,7 @@ function locateTask(before: readonly TaskEntry[], locator: TaskLocator): TaskEnt
 }
 
 function resolveInsertPosition(
+  ctx: TaskLogContext,
   document: MarkdownDocument,
   before: readonly TaskEntry[],
   at: InsertPosition,
@@ -362,7 +366,7 @@ function resolveInsertPosition(
       return bodyEndSlot(document)
     }
     case 'contextEnd': {
-      const { parent, index } = locateTask(before, at.task)
+      const { parent, index } = locateTask(ctx, before, at.task)
       if (parent.type === 'listItem') {
         return { kind: 'end', container: parent }
       }

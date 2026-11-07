@@ -1,17 +1,16 @@
 import { useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { errorMessage, mobileStorage, type MobileStorageKind } from '@reflect/core'
+import { errorMessage, type MobileStorageKind, graphNameFromRoot } from '@reflect/core'
 import { InlineAlert } from '@/components/inline-alert.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { graphNameFromRoot } from '@/lib/graph-names.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { NewGraphDrawer } from '@/mobile/new-graph-drawer.tsx'
 import { MobileScreenHeader } from '@/mobile/screen-header.tsx'
 import { SettingsActionRow, SettingsGroup, SettingsSelectRow } from '@/mobile/settings-list.tsx'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useRouter } from '@/routing/router.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 /**
  * The Graphs screen (route kind `graphs`) — the mobile graph switcher as an
@@ -31,11 +30,10 @@ export function MobileGraphs(): ReactElement {
   const [switchError, setSwitchError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
-  const bridgeReady = useBridgeReady()
+  const { mobileStorage } = useCoreServices()
   const { data: storage } = useQuery({
     queryKey: queryKeys.mobile.storage,
-    queryFn: mobileStorage,
-    enabled: bridgeReady,
+    queryFn: () => mobileStorage.resolve(),
     // The graph list can change outside the app between visits.
     refetchOnMount: 'always',
   })
@@ -74,18 +72,12 @@ export function MobileGraphs(): ReactElement {
   }
 
   return (
-    <div
-      className="flex h-full w-screen flex-col"
-      style={{ paddingTop: 'env(safe-area-inset-top)' }}
-    >
+    <div className="flex h-full w-screen flex-col pt-safe">
       <MobileScreenHeader
         title="Graphs"
         onBack={() => (canBack ? back() : navigate({ kind: 'settings' }))}
       />
-      <main
-        className="min-h-0 flex-1 overflow-y-auto"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
+      <main className="min-h-0 flex-1 overflow-y-auto px-safe pb-safe">
         <div className="flex flex-col gap-6 px-4 py-4">
           <SettingsGroup
             header="iCloud Drive"

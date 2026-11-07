@@ -21,7 +21,7 @@ const THEME_OPTIONS: ThemeOption[] = [
 
 /**
  * Theme picker as radio cards (the original app's idiom). Edits the settings
- * document directly — the ThemeProvider applies whatever is persisted, so
+ * document directly — the ThemeEffect applies whatever is persisted, so
  * this section needs no theme context of its own.
  */
 export function AppearanceSection(): ReactElement {
@@ -29,10 +29,7 @@ export function AppearanceSection(): ReactElement {
 
   return (
     <SettingsSection id="appearance">
-      <SettingsField
-        legend="Theme"
-        description="System follows your OS appearance. Saved with your settings."
-      >
+      <SettingsField legend="Theme" description="System follows your OS appearance.">
         <div className="mt-3 grid grid-cols-3 gap-2">
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
             const selected = settings.theme === value

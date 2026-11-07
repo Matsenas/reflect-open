@@ -20,7 +20,7 @@ export function NoteContextSidebar({ path }: NoteContextSidebarProps): ReactElem
   // Keyed by path so navigating away closes a half-typed alias.
   const [addingAliasFor, setAddingAliasFor] = useState<string | null>(null)
   return (
-    <div className="flex flex-col py-2 text-text">
+    <div className="flex flex-col py-2 text-text" data-testid="note-context-sidebar">
       <div className="my-4 space-y-4 pb-4">
         <NoteActionsSection path={path} showTrash onAddAlias={() => setAddingAliasFor(path)} />
         <NoteAliasesSection

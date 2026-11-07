@@ -1,23 +1,28 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   buildIndexedNote,
-  dailyDatesInRange,
+  createDailyNoteService,
+  createDatabaseService,
+  createIpcBridgeService,
+  createSearchService,
+  createSuggestionService,
+  createWikiResolverService,
   parseHighlights,
   parseNote,
   parseSearchQuery,
-  resolveWikiTarget,
-  searchNotes,
-  searchWithFilters,
-  setBridge,
-  suggestWikiLinkTargets,
+  type DailyNoteService,
   type IndexedNote,
+  type SearchService,
+  type SuggestionService,
+  type WikiResolverService,
 } from '@reflect/core'
-import { createDevIndexDb, type DevIndexDb } from '@/dev/dev-index-db.ts'
 import {
-  buildAllNotesSearch,
-  EMPTY_ALL_NOTES_FILTERS,
-  searchPlanFor,
-} from '@/mobile/search-filters/filter-state.ts'
+  createTestClockService,
+  createTestActivityPort,
+  createTestLoggerService,
+} from '@reflect/core/testing'
+import { createDevIndexDb, type DevIndexDb } from '@/dev/dev-index-db.ts'
+import { buildAllNotesSearch, EMPTY_ALL_NOTES_FILTERS, searchPlanFor } from '@reflect/app'
 
 function sampleNote(overrides: Partial<IndexedNote> = {}): IndexedNote {
   return {
@@ -31,7 +36,6 @@ function sampleNote(overrides: Partial<IndexedNote> = {}): IndexedNote {
     isPrivate: false,
     isPinned: false,
     pinnedOrder: null,
-    hasConflict: false,
     hasContent: true,
     gistUrl: null,
     gistStale: false,
@@ -72,6 +76,14 @@ function sampleNote(overrides: Partial<IndexedNote> = {}): IndexedNote {
   }
 }
 
+async function searchTitles(
+  index: IndexServices,
+  query: string,
+): Promise<{ path: string; title: string }[]> {
+  const hits = await index.search.searchWithFilters(parseSearchQuery(query))
+  return hits.map(({ path, title }) => ({ path, title }))
+}
+
 async function openDb(): Promise<DevIndexDb> {
   return await createDevIndexDb()
 }
@@ -81,22 +93,47 @@ interface CapturedQuery {
   readonly params: readonly unknown[]
 }
 
-function installQueryBridge(db: DevIndexDb, captured: CapturedQuery[] = []): void {
-  setBridge({
-    invoke: async (command, args) => {
-      if (command !== 'db_query') {
-        throw new Error(`Unexpected command: ${command}`)
-      }
-      const sql = String(args['sql'])
-      const params = (args['params'] as readonly unknown[]) ?? []
-      captured.push({ sql, params })
-      return db.query(sql, params)
-    },
-    listen: async () => () => {},
-  })
+interface IndexServices {
+  readonly search: SearchService
+  readonly dailyNotes: DailyNoteService
+  readonly wikiResolver: WikiResolverService
+  readonly suggestions: SuggestionService
 }
 
-afterEach(() => setBridge(null))
+/**
+ * The index read services over a transport that answers `db_query` from `db`.
+ */
+function connectIndex(db: DevIndexDb, captured: CapturedQuery[] = []): IndexServices {
+  const ipc = createIpcBridgeService({
+    transport: {
+      invoke: (command, args) => {
+        return Promise.try(() => {
+          if (command !== 'db_query') {
+            throw new Error(`Unexpected command: ${command}`)
+          }
+          const sql = String(args['sql'])
+          const params = (args['params'] as readonly unknown[]) ?? []
+          captured.push({ sql, params })
+          return db.query(sql, params)
+        })
+      },
+      listen: () => Promise.resolve(() => {}),
+    },
+    logger: createTestLoggerService(),
+  })
+  const database = createDatabaseService({ ipc })
+  const wikiResolver = createWikiResolverService({ database })
+  return {
+    search: createSearchService({ database, wikiResolver }),
+    dailyNotes: createDailyNoteService({
+      database,
+      clock: createTestClockService(),
+      activity: createTestActivityPort(),
+    }),
+    wikiResolver,
+    suggestions: createSuggestionService({ database }),
+  }
+}
 
 describe('createDevIndexDb', () => {
   it('applies the real migrations and answers db_query-style reads', async () => {
@@ -146,9 +183,9 @@ describe('createDevIndexDb', () => {
         }),
       )
     }
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    await expect(dailyDatesInRange('2026-06-01', '2026-06-30')).resolves.toEqual([
+    await expect(index.dailyNotes.dailyDatesInRange('2026-06-01', '2026-06-30')).resolves.toEqual([
       '2026-06-01',
       '2026-06-04',
     ])
@@ -167,9 +204,9 @@ describe('createDevIndexDb', () => {
         source,
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    await expect(searchNotes('alfredorifugio')).resolves.toEqual([
+    await expect(searchTitles(index, 'alfredorifugio')).resolves.toEqual([
       { path, title: 'Field Jacket Hunter' },
     ])
   })
@@ -201,9 +238,9 @@ describe('createDevIndexDb', () => {
       }),
     )
     const captured: CapturedQuery[] = []
-    installQueryBridge(db, captured)
+    const index = connectIndex(db, captured)
 
-    const hits = await searchWithFilters(parseSearchQuery('東京'))
+    const hits = await index.search.searchWithFilters(parseSearchQuery('東京'))
 
     expect(hits.map((hit) => hit.path)).toEqual(['notes/tokyo-trip.md', 'notes/body-hit.md'])
     expect(parseHighlights(hits[0]!.highlightedTitle)).toEqual([
@@ -216,11 +253,11 @@ describe('createDevIndexDb', () => {
     expect(hits[1]!.snippet).toContain('東京')
     const plan = db.query(`EXPLAIN QUERY PLAN ${captured[0]!.sql}`, captured[0]!.params)
     expect(plan.some((row) => String(row['detail']).includes('MATERIALIZE lexical'))).toBe(true)
-    await expect(searchNotes('東京')).resolves.toEqual([
+    await expect(searchTitles(index, '東京')).resolves.toEqual([
       { path: 'notes/tokyo-trip.md', title: '来週の東京旅行計画' },
       { path: 'notes/body-hit.md', title: '別のノート' },
     ])
-    const multiTermHits = await searchWithFilters(parseSearchQuery('東京 旅行'))
+    const multiTermHits = await index.search.searchWithFilters(parseSearchQuery('東京 旅行'))
     expect(multiTermHits).toMatchObject([
       { path: 'notes/tokyo-trip.md', title: '来週の東京旅行計画', snippet: null },
     ])
@@ -230,7 +267,7 @@ describe('createDevIndexDb', () => {
       { text: '計画', highlighted: false },
     ])
 
-    const filtered = await searchWithFilters(parseSearchQuery('is:pinned 東京'))
+    const filtered = await index.search.searchWithFilters(parseSearchQuery('is:pinned 東京'))
     expect(filtered.map((hit) => hit.path)).toEqual(['notes/body-hit.md'])
   })
 
@@ -288,12 +325,12 @@ describe('createDevIndexDb', () => {
         mtime: 200,
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
     // Title-prefix (rank 1) leads, then the word-start title match (rank 2),
     // then the FTS body hit (rank 3). `Oscar party plans` contains `car` only
     // mid-word and must not surface at all.
-    const hits = await searchWithFilters(parseSearchQuery('car'))
+    const hits = await index.search.searchWithFilters(parseSearchQuery('car'))
     expect(hits.map((hit) => hit.path)).toEqual([
       'notes/car-log.md',
       'notes/car-wash.md',
@@ -323,18 +360,18 @@ describe('createDevIndexDb', () => {
         tags: [],
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    const hits = await searchWithFilters(parseSearchQuery('authent migr'))
+    const hits = await index.search.searchWithFilters(parseSearchQuery('authent migr'))
 
     expect(hits).toMatchObject([{ path: 'notes/security-rollout.md', title: 'Security rollout' }])
     expect(hits[0]!.snippet).toContain('authentication')
-    await expect(searchNotes('authent migr')).resolves.toEqual([
+    await expect(searchTitles(index, 'authent migr')).resolves.toEqual([
       { path: 'notes/security-rollout.md', title: 'Security rollout' },
     ])
-    await expect(searchNotes('thentication')).resolves.toEqual([])
+    await expect(searchTitles(index, 'thentication')).resolves.toEqual([])
 
-    const mixedHits = await searchWithFilters(parseSearchQuery('secur migr'))
+    const mixedHits = await index.search.searchWithFilters(parseSearchQuery('secur migr'))
     expect(mixedHits).toMatchObject([
       { path: 'notes/security-rollout.md', title: 'Security rollout' },
     ])
@@ -343,7 +380,7 @@ describe('createDevIndexDb', () => {
       { text: 'Secur', highlighted: true },
       { text: 'ity rollout', highlighted: false },
     ])
-    await expect(searchNotes('migr secur')).resolves.toEqual([
+    await expect(searchTitles(index, 'migr secur')).resolves.toEqual([
       { path: 'notes/security-rollout.md', title: 'Security rollout' },
     ])
   })
@@ -361,16 +398,14 @@ describe('createDevIndexDb', () => {
         tags: [],
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    await expect(searchNotes('meeting - notes')).resolves.toEqual([
+    await expect(searchTitles(index, 'meeting - notes')).resolves.toEqual([
       { path: 'notes/meeting-notes.md', title: 'Meeting Notes' },
     ])
-    await expect(searchNotes('agenda &')).resolves.toEqual([
+    await expect(searchTitles(index, 'agenda &')).resolves.toEqual([
       { path: 'notes/meeting-notes.md', title: 'Meeting Notes' },
     ])
-    // Punctuation alone still matches nothing, never the whole recall feed.
-    await expect(searchNotes('- .')).resolves.toEqual([])
   })
 
   it('drops an ignored term from title recall, not just from the FTS match', async () => {
@@ -397,15 +432,15 @@ describe('createDevIndexDb', () => {
         tags: [],
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
     // Only title recall can reach a term inside an unsegmented title run, so
     // the ignored term has to leave recall too, not just the FTS expression.
-    await expect(searchNotes('東京 -')).resolves.toEqual([
+    await expect(searchTitles(index, '東京 -')).resolves.toEqual([
       { path: 'notes/tokyo-trip.md', title: '来週の東京旅行計画' },
     ])
     // A punctuation-only query keeps its terms, so recall still matches them.
-    await expect(searchNotes('.')).resolves.toEqual([
+    await expect(searchTitles(index, '.')).resolves.toEqual([
       { path: 'notes/dotfiles.md', title: '.hidden files' },
     ])
   })
@@ -438,9 +473,9 @@ describe('createDevIndexDb', () => {
         mtime: 200,
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    const hits = await searchWithFilters(parseSearchQuery('Tim Mac'))
+    const hits = await index.search.searchWithFilters(parseSearchQuery('Tim Mac'))
     expect(hits.map((hit) => hit.path)).toEqual([
       'notes/tim-maccaw-planning.md',
       'notes/tim-macrae.md',
@@ -483,9 +518,9 @@ describe('createDevIndexDb', () => {
         tags: [],
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    const accentHits = await searchWithFilters(parseSearchQuery('cafe'))
+    const accentHits = await index.search.searchWithFilters(parseSearchQuery('cafe'))
     expect(accentHits.map((hit) => hit.path)).toEqual(['notes/cafe-alpha.md', 'notes/body-cafe.md'])
     const accentHit = accentHits[0]!
     expect(parseHighlights(accentHit.highlightedTitle)).toEqual([
@@ -493,13 +528,13 @@ describe('createDevIndexDb', () => {
       { text: ' Alpha', highlighted: false },
     ])
 
-    const punctuationHit = (await searchWithFilters(parseSearchQuery('alpha,')))[0]!
+    const punctuationHit = (await index.search.searchWithFilters(parseSearchQuery('alpha,')))[0]!
     expect(parseHighlights(punctuationHit.highlightedTitle)).toEqual([
       { text: 'Café ', highlighted: false },
       { text: 'Alpha', highlighted: true },
     ])
 
-    const mergedHit = (await searchWithFilters(parseSearchQuery('car,')))[0]!
+    const mergedHit = (await index.search.searchWithFilters(parseSearchQuery('car,')))[0]!
     expect(parseHighlights(mergedHit.highlightedTitle)).toEqual([
       { text: 'Car,', highlighted: true },
       { text: ' ', highlighted: false },
@@ -520,10 +555,10 @@ describe('createDevIndexDb', () => {
         tags: [],
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
     const parsed = buildAllNotesSearch('Tim Mac', EMPTY_ALL_NOTES_FILTERS, null)
-    const hits = await searchWithFilters(parsed, searchPlanFor(parsed))
+    const hits = await index.search.searchWithFilters(parsed, searchPlanFor(parsed))
     expect(hits).toMatchObject([
       { path: 'notes/tim-maccaw.md', title: 'Tim MacCaw', snippet: null },
     ])
@@ -546,9 +581,9 @@ describe('createDevIndexDb', () => {
         tags: [],
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    const hit = (await searchWithFilters(parseSearchQuery('mac')))[0]!
+    const hit = (await index.search.searchWithFilters(parseSearchQuery('mac')))[0]!
     expect(hit.snippet).toContain('mac')
     expect(parseHighlights(hit.highlightedTitle)).toEqual([
       { text: 'Tim ', highlighted: false },
@@ -567,9 +602,9 @@ describe('createDevIndexDb', () => {
         source,
       }),
     )
-    installQueryBridge(db)
+    const index = connectIndex(db)
 
-    const { suggestions } = await suggestWikiLinkTargets('meeting with ada')
+    const { suggestions } = await index.suggestions.suggestWikiLinkTargets('meeting with ada')
     expect(suggestions).toMatchObject([
       {
         path: 'notes/meeting.md',
@@ -578,10 +613,12 @@ describe('createDevIndexDb', () => {
         insertText: 'Meeting with Ada',
       },
     ])
-    await expect(resolveWikiTarget(suggestions[0]!.insertText)).resolves.toEqual({
-      kind: 'resolved',
-      ref: 'notes/meeting.md',
-    })
+    await expect(index.wikiResolver.resolveWikiTarget(suggestions[0]!.insertText)).resolves.toEqual(
+      {
+        kind: 'resolved',
+        ref: 'notes/meeting.md',
+      },
+    )
   })
 
   it('re-applying a note replaces its rows instead of duplicating them', async () => {

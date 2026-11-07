@@ -1,11 +1,12 @@
-import { EditorInputTraits } from '@/editor/editor-input-traits.tsx'
+import type { MaybePromise } from '@reflect/utils'
 import { FormattingToolbarBridge } from '@/editor/formatting-toolbar-bridge.tsx'
 import { MediaLightbox } from '@/editor/media-lightbox.tsx'
-import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
+import { MenuBoundaryContext } from '@/editor/menu-boundary.ts'
+import { useWikilinkResolver } from '@/editor/resolve-wikilink.ts'
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
 import { lightboxItemFromXPostMedia } from '@/editor/x-post-media-lightbox-item.ts'
-import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
-import { isTouchEditorSurface } from '@/lib/platform-surface.ts'
+import { useYouTubeVideoResolver } from '@/editor/youtube-video-resolver.ts'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { cn } from '@/lib/utils.ts'
 import type {
   AcceptPendingReplacementOptions,
@@ -37,6 +38,7 @@ import {
 } from '@meowdown/react'
 import { errorMessage, type TimeFormat } from '@reflect/core'
 import {
+  use,
   useCallback,
   useImperativeHandle,
   useLayoutEffect,
@@ -47,7 +49,7 @@ import {
   type Ref,
 } from 'react'
 
-type WikilinkHoverRenderer = (hit: WikilinkHoverHit) => ReactNode | Promise<ReactNode>
+type WikilinkHoverRenderer = (hit: WikilinkHoverHit) => MaybePromise<ReactNode>
 
 // See apps/youtube-relay/README.md.
 const YOUTUBE_RELAY_URL = 'https://youtube-relay-reflect.vercel.app/'
@@ -169,7 +171,7 @@ interface NoteEditorProps {
    */
   resolveAssetOpenPath?: (src: string) => string | null
   /** Open a vetted graph-relative asset path in the OS default application. */
-  openAsset?: (path: string) => Promise<void> | void
+  openAsset?: (path: string) => MaybePromise<void>
   /**
    * Persist a pasted/dropped file (any kind) and return its markdown
    * destination, or null to decline. meowdown inserts `![](dest)` for images
@@ -204,7 +206,7 @@ interface NoteEditorProps {
    * renders no card. Must be a stable function: a new identity re-runs the
    * resolution for the currently hovered link.
    */
-  renderWikilinkHoverCard?: WikilinkHoverRenderer
+  renderWikilinkHoverCard?: WikilinkHoverRenderer | undefined
   /** Click on an inline `#tag`. The tag name arrives without the leading `#`. */
   onTagClick?: (tag: string) => void
   /** Search notes for the `[[` autocomplete menu. */
@@ -290,7 +292,11 @@ export function NoteEditor({
   onSearchChange,
   handleRef,
 }: NoteEditorProps): ReactElement {
+  const { platform, logger } = useCoreServices()
+  const touchEditor = platform.surface.touchEditor
+  const menuBoundary = use(MenuBoundaryContext)
   const resolveXPost = useXPostResolver()
+  const resolveWikilink = useWikilinkResolver()
   const innerRef = useRef<EditorHandle>(null)
 
   // Latest callbacks, read through refs so a changing prop identity never
@@ -319,6 +325,7 @@ export function NoteEditor({
     onExitBoundaryRef.current = onExitBoundary
   })
 
+  const resolveYouTubeVideo = useYouTubeVideoResolver()
   const lightbox = useLightbox()
   const openLightbox = lightbox.open
   // Captured when the lightbox opens, so a later graph switch cannot retarget it.
@@ -336,8 +343,9 @@ export function NoteEditor({
       setSelection: (position) => innerRef.current?.setSelection(position),
       getSelectedText: () => innerRef.current?.getSelectedText() ?? '',
       openSelectionMenu: () => innerRef.current?.openSelectionMenu(),
-      startPendingReplacement: (options) =>
-        innerRef.current?.startPendingReplacement(options) ?? false,
+      startPendingReplacement: (options) => {
+        return innerRef.current?.startPendingReplacement(options) ?? false
+      },
       appendPendingReplacementText: (text) => innerRef.current?.appendPendingReplacementText(text),
       acceptPendingReplacement: (options) => innerRef.current?.acceptPendingReplacement(options),
       discardPendingReplacement: () => innerRef.current?.discardPendingReplacement(),
@@ -357,8 +365,9 @@ export function NoteEditor({
   )
 
   const handleWikilinkClick = useCallback(
-    (payload: { target: string; event: MouseEvent | KeyboardEvent; mod: boolean }) =>
-      onWikiLinkClickRef.current?.({ target: payload.target, openInNewWindow: payload.mod }),
+    (payload: { target: string; event: MouseEvent | KeyboardEvent; mod: boolean }) => {
+      return onWikiLinkClickRef.current?.({ target: payload.target, openInNewWindow: payload.mod })
+    },
     [],
   )
   const handleTagClick = useCallback(
@@ -392,19 +401,19 @@ export function NoteEditor({
         }
         const openPath = resolveAssetOpenPathRef.current?.(src) ?? null
         const openImage = openAssetRef.current ?? null
-        setOpenLightboxImage(() =>
-          openPath !== null && openImage !== null
+        setOpenLightboxImage(() => {
+          return openPath !== null && openImage !== null
             ? () => {
                 void Promise.resolve(openImage(openPath)).catch((cause) => {
-                  console.error('open image failed:', errorMessage(cause))
+                  logger.error('open image failed:', errorMessage(cause))
                 })
               }
-            : null,
-        )
+            : null
+        })
         openLightbox({ type: 'image', src: displayUrl, alt }, element)
       })
     },
-    [openLightbox],
+    [logger, openLightbox],
   )
 
   const handleXPostMediaClick: XPostMediaClickHandler = useCallback(
@@ -452,8 +461,12 @@ export function NoteEditor({
         // setting: iOS derives the keyboard's smart-quotes/smart-dashes traits
         // from it at focus time, and smart punctuation corrupts markdown
         // syntax ([[ wiki links, code spans, --- fences) — Plan 19 gate.
-        // Autocorrect is independent and stays on (EditorInputTraits).
-        spellCheck={isTouchEditorSurface() ? false : spellCheck}
+        // Autocorrect is independent and stays on.
+        spellCheck={touchEditor ? false : spellCheck}
+        autoCorrect={touchEditor ? true : undefined}
+        autoCapitalize={touchEditor ? 'sentences' : undefined}
+        // Hides system writing suggestions such as the macOS "Write with Siri" prompt.
+        writingSuggestions={false}
         searchQuery={searchQuery ?? ''}
         onSearchChange={onSearchChange}
         // Reflect's implementation-neutral `12h`/`24h` maps to meowdown's
@@ -466,7 +479,7 @@ export function NoteEditor({
         // revealed on hover and drag-reorders blocks with a pointer, neither of
         // which a touch webview can express. Turning it off also drops the drop
         // indicator, which meowdown gates on the same prop.
-        blockHandle={isTouchEditorSurface() ? false : blockHandle}
+        blockHandle={touchEditor ? false : blockHandle}
         editorClassName={cn('reflect-editor', className)}
         placeholder={titlePlaceholder}
         onDocChange={handleDocChange}
@@ -481,6 +494,7 @@ export function NoteEditor({
         onWikilinkSearch={onWikilinkSearch}
         onTagSearch={onTagSearch}
         onSelectionMenuSearch={onSelectionMenuSearch}
+        collisionBoundary={menuBoundary}
         pendingReplacementActions={pendingReplacementActions}
         onPendingReplacementResolve={onPendingReplacementResolve}
         onSlashMenuSearch={onSlashMenuSearch}
@@ -492,7 +506,6 @@ export function NoteEditor({
         resolveFileInfo={handleResolveFileInfo}
         onExitBoundary={handleExitBoundary}
       >
-        <EditorInputTraits />
         {/* Only a pane that persists files gets the toolbar's attach button;
             `handleFilePaste` is the same handler meowdown pastes through. */}
         <FormattingToolbarBridge saveFile={saveFile !== undefined ? handleFilePaste : undefined} />
