@@ -316,6 +316,26 @@ workflow above wherever they conflict.
   unavailable; graphs kept in iCloud Drive itself still sync and still get
   the conflict sweep.
 
+## Automatic updates
+
+- Every push to `master` that touches more than docs runs
+  `.github/workflows/fork-release.yml`, or start it by hand from the Actions
+  tab. It builds on `macos-26`, Apple Silicon only, and publishes a release
+  with `latest.json`. The app checks that file at launch and every 6 hours, and
+  shows an "Update available" toast. Installing is always the user's click.
+- The version is upstream's plus `.fork.<run number>`, set at build time. Never
+  commit it to `apps/desktop/package.json`.
+- Releases are signed with the fork's updater key, in the
+  `TAURI_SIGNING_PRIVATE_KEY` secret and in `~/.tauri/reflect-fork-updater.key`.
+  Its public half is in `tauri.fork.conf.json`. Installed apps only trust that
+  key, so losing it means installing the next build by hand. A build made with
+  upstream's public key cannot update onto this channel.
+- GitHub pauses Actions on forks at times. If releases stop, check the banner
+  on the Actions tab; the repository owner can re-enable workflows there.
+- A release ships to the user's daily app on one click, and a newer build can
+  migrate `.reflect/index.sqlite` one way, so test schema-changing syncs on a
+  scratch copy of the graph first.
+
 ## Running fork builds safely
 
 - Never open the user's real notes graph with a fork or dev build while the

@@ -1,0 +1,87 @@
+name: Fork release
+
+# Builds the fork's Mac app and publishes it as a GitHub release, which the
+# installed app finds through `latest.json` (see "Automatic updates" in
+# AGENTS.md). Upstream's publish workflows only run on team-reflect/reflect-open.
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-release
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Build and publish
+    if: github.repository == 'Matsenas/reflect-open'
+    runs-on: macos-26
+    timeout-minutes: 120
+    permissions:
+      contents: write # create the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node
+
+      - uses: ./.github/actions/setup-rust
+
+      # The updater only offers a higher version, and a fork-only change keeps
+      # upstream's version, so each run adds its own prerelease suffix. Sorted
+      # numerically: 0.17.0-beta.4 < 0.17.0-beta.4.fork.2 < 0.17.0-beta.4.fork.10.
+      - name: Compute the version
+        id: version
+        run: |
+          base=$(node -p "require('./apps/desktop/package.json').version")
+          case "$base" in
+            *-*) version="$base.fork.$GITHUB_RUN_NUMBER" ;;
+            *) version="$base-fork.$GITHUB_RUN_NUMBER" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=fork-$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build the app and its updater archive
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pnpm --filter @reflect/desktop tauri build \
+            --config src-tauri/tauri.fork.conf.json \
+            --config "{\"version\":\"$VERSION\",\"bundle\":{\"createUpdaterArtifacts\":true}}"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cd target/release/bundle/macos
+          jq -n \
+            --arg version "$VERSION" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg signature "$(cat Reflect.app.tar.gz.sig)" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Reflect.app.tar.gz" \
+            '{version: $version, pub_date: $date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' \
+            > latest.json
+          # `--latest` is what `releases/latest/download/latest.json` follows,
+          # and that link skips anything marked as a prerelease.
+          gh release create "$TAG" Reflect.app.tar.gz Reflect.app.tar.gz.sig latest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Reflect $VERSION" \
+            --notes "Fork build of $GITHUB_SHA." \
+            --latest
