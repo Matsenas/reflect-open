@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { isUntitledNotePath, type GraphInfo } from '@reflect/core'
-import { ListChecks, MessageSquare, SquarePen } from 'lucide-react'
+import { CalendarDays, ListChecks, MessageSquare, SquarePen } from 'lucide-react'
 import { AudioMemoButton } from '@/components/audio-memo/audio-memo-button.tsx'
 import { ListIcon } from '@/components/icons/list-icon.tsx'
 import { PencilIcon } from '@/components/icons/pencil-icon.tsx'
@@ -74,6 +74,17 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
             binding={keybindingFor('nav.today') ?? undefined}
             active={(route.kind === 'today' || route.kind === 'daily') && !hasActivePinnedNote}
             onClick={() => void context.app.commands.run('nav.today', context)}
+          />
+          <SidebarItem
+            icon={
+              <span className={lucideBox}>
+                <CalendarDays aria-hidden strokeWidth={1.75} className="size-4" />
+              </span>
+            }
+            label="Planner"
+            binding={keybindingFor('nav.planner') ?? undefined}
+            active={route.kind === 'planner'}
+            onClick={() => void context.app.commands.run('nav.planner', context)}
           />
           <SidebarItem
             icon={

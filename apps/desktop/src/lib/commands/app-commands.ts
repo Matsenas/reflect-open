@@ -74,6 +74,13 @@ const APP_COMMANDS: AppCommand[] = [
     run: (context) => context.navigate({ kind: 'tasks' }),
   },
   {
+    id: 'nav.planner',
+    title: 'Planner',
+    keywords: ['calendar', 'week', 'schedule', 'plan', 'todo', 'todos'],
+    keybinding: 'Mod-Shift-p',
+    run: (context) => context.navigate({ kind: 'planner' }),
+  },
+  {
     id: 'note.new',
     title: 'New note',
     keywords: ['create'],

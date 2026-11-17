@@ -17,7 +17,7 @@ import {
 import { dropTargetSchema, parseDragId, type DragSource } from './lib/planner-dnd.ts'
 import type { PlannerTask } from './lib/planner-task.ts'
 import type { TaskSchedule } from './lib/task-schedule.ts'
-import { durationOf, rangeAtOffset } from './lib/week-layout.ts'
+import { rangeAtOffset } from './lib/week-layout.ts'
 
 /**
  * Where a drag ends: a slot on the calendar, or a group in the task list.
@@ -107,7 +107,7 @@ export function usePlannerDrag(
         return null
       }
       const offset = top - column.getBoundingClientRect().top
-      const time = rangeAtOffset(offset, durationOf(item.schedule?.time ?? null))
+      const time = rangeAtOffset(offset, item.duration)
       return { kind: 'schedule', schedule: { date, time } }
     },
     [],

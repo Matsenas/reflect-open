@@ -26,6 +26,7 @@ export function deepLinkForRoute(route: Route): string | null {
     case 'note':
       return noteDeepLink(route.path)
     case 'allNotes':
+    case 'planner':
     case 'chat':
     case 'settings':
     case 'graphs':

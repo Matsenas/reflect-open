@@ -1,5 +1,5 @@
 import { addDaysToIsoDate } from '@reflect/utils'
-import { DEFAULT_DURATION_MINUTES, MINUTES_PER_DAY, type TimeRange } from './task-schedule.ts'
+import { MINUTES_PER_DAY, type TimeRange } from './task-schedule.ts'
 
 /**
  * Pixels per hour of the time grid.
@@ -48,14 +48,6 @@ export function resizeToOffset(range: TimeRange, offset: number): TimeRange {
     MINUTES_PER_DAY,
   )
   return { start: range.start, end }
-}
-
-/**
- * How long a task stays when it moves: its own length, or the default for a
- * task that had no time yet.
- */
-export function durationOf(time: TimeRange | null): number {
-  return time === null ? DEFAULT_DURATION_MINUTES : time.end - time.start
 }
 
 /**
