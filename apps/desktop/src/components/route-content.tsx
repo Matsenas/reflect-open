@@ -21,6 +21,10 @@ const TasksScreen = lazy(async () => {
   const { TasksScreen } = await import('@/components/tasks/tasks-screen.tsx')
   return { default: TasksScreen }
 })
+const TaskPlannerScreen = lazy(async () => {
+  const { TaskPlannerScreen } = await import('@/features/task-planner/task-planner-screen.tsx')
+  return { default: TaskPlannerScreen }
+})
 
 /**
  * The route → view mapping (Plan 06): the single place a {@link Route} kind
@@ -51,6 +55,8 @@ function RouteContentBody(): ReactElement {
       // Owns its scroll container (a grouped list with a fixed header), so no
       // ScrollRestored wrapper — same shape as All Notes.
       return <TasksScreen />
+    case 'planner':
+      return <TaskPlannerScreen />
     case 'search':
       return <SearchRoute query={route.query} />
     case 'chat':
