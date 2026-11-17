@@ -69,6 +69,11 @@ export function useGoogleCalendarState(): GoogleCalendarState {
   return useServiceState(service, service.getState)
 }
 
+/**
+ * The cache identity shared by every week's events query.
+ */
+export const GOOGLE_EVENTS_QUERY_KEY = ['google-calendar', 'events'] as const
+
 const NO_EVENTS: readonly GoogleCalendarEvent[] = []
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 
@@ -90,7 +95,7 @@ export function useGoogleEvents(days: readonly string[]): GoogleEventsResult {
   const last = days.at(-1)
   const enabled = status === 'connected' && first !== undefined && last !== undefined
   const query = useQuery({
-    queryKey: ['google-calendar', 'events', email, first, last],
+    queryKey: [...GOOGLE_EVENTS_QUERY_KEY, email, first, last],
     queryFn: () => {
       if (first === undefined || last === undefined) {
         return []

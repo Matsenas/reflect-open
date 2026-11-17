@@ -30,7 +30,7 @@ const LINK_CLASS = 'font-medium text-text underline underline-offset-2'
  */
 export function GoogleCalendarDialog({ trigger }: GoogleCalendarDialogProps): ReactElement {
   const service = useGoogleCalendarService()
-  const { status, email, hasClient } = useGoogleCalendarState()
+  const { status, email, hasClient, canWrite } = useGoogleCalendarState()
   const { opener } = useAppServices()
   const queryClient = useQueryClient()
   const action = useAsyncAction()
@@ -69,6 +69,11 @@ export function GoogleCalendarDialog({ trigger }: GoogleCalendarDialogProps): Re
           Connected{email === null ? '' : ` as ${email}`}. The planner shows events from the
           calendars ticked in Google Calendar.
         </p>
+        {canWrite ? null : (
+          <InlineAlert tone="warning">
+            This sign-in is read-only. Disconnect and connect again to create and move events.
+          </InlineAlert>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -131,8 +136,8 @@ export function GoogleCalendarDialog({ trigger }: GoogleCalendarDialogProps): Re
         <DialogHeader>
           <DialogTitle>Google Calendar</DialogTitle>
           <DialogDescription>
-            Reflect signs in with your own Google OAuth client and reads events straight from
-            Google. Access is read-only, and the keys stay in your keychain.
+            Reflect signs in with your own Google OAuth client and talks straight to Google. It
+            reads your calendars and can create and move events; the keys stay in your keychain.
           </DialogDescription>
         </DialogHeader>
         {body}

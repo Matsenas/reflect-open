@@ -13,7 +13,7 @@ import {
   GOOGLE_CALENDAR_CLIENT_SECRET,
   type GoogleCalendarService,
 } from './google-calendar-service.ts'
-import { GOOGLE_REVOKE_URL, GOOGLE_TOKEN_URL } from './lib/google-oauth.ts'
+import { GOOGLE_CALENDAR_SCOPES, GOOGLE_REVOKE_URL, GOOGLE_TOKEN_URL } from './lib/google-oauth.ts'
 
 const NOW = Date.parse('2026-11-16T10:00:00Z')
 const CLIENT = { clientId: 'client-id', clientSecret: 'client-secret' }
@@ -40,6 +40,7 @@ function storedAuth(overrides: Record<string, unknown> = {}): string {
     refreshToken: 'refresh-1',
     expiresAt: NOW + 3_600_000,
     email: 'me@example.com',
+    scope: GOOGLE_CALENDAR_SCOPES,
     ...overrides,
   })
 }
@@ -88,7 +89,12 @@ function serveTokens(http: Harness['http'], json: unknown, status = 200): void {
 describe('connect', () => {
   it('signs in through the loopback redirect and keeps the tokens in the keychain', async () => {
     const { service, http, keychain, opened } = createHarness()
-    serveTokens(http, { access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 3600 })
+    serveTokens(http, {
+      access_token: 'access-1',
+      refresh_token: 'refresh-1',
+      expires_in: 3600,
+      scope: GOOGLE_CALENDAR_SCOPES,
+    })
     http.on('GET', `${API}/calendars/primary?fields=id`, {
       status: 200,
       json: { id: 'me@example.com' },
@@ -100,6 +106,7 @@ describe('connect', () => {
       status: 'connected',
       email: 'me@example.com',
       hasClient: true,
+      canWrite: true,
     })
     const consent = new URL(opened[0] ?? '')
     expect(consent.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:51234')
@@ -114,6 +121,7 @@ describe('connect', () => {
       refreshToken: 'refresh-1',
       expiresAt: NOW + 3_600_000,
       email: 'me@example.com',
+      scope: GOOGLE_CALENDAR_SCOPES,
     })
     expect(JSON.parse(keychain.snapshot()[GOOGLE_CALENDAR_CLIENT_SECRET] ?? '')).toEqual(CLIENT)
   })
@@ -265,13 +273,96 @@ describe('listEvents', () => {
     const failure: unknown = await service.listEvents(range).catch((error: unknown) => error)
 
     expect(isAppError(failure) && failure.kind).toBe('auth')
-    expect(service.getState()).toEqual({ status: 'disconnected', email: null, hasClient: true })
+    expect(service.getState()).toEqual({
+      status: 'disconnected',
+      email: null,
+      hasClient: true,
+      canWrite: false,
+    })
     expect(keychain.snapshot()[GOOGLE_CALENDAR_AUTH_SECRET]).toBeUndefined()
   })
 
   it('rejects while not connected', async () => {
     const { service } = createHarness()
     await expect(service.listEvents(range)).rejects.toThrow('not connected')
+  })
+})
+
+describe('writes', () => {
+  const event = {
+    id: 'uid-1:0',
+    calendarId: 'me@example.com',
+    eventId: 'e1',
+    title: 'Standup',
+    startsAt: Date.parse('2026-11-16T09:00:00Z'),
+    endsAt: Date.parse('2026-11-16T09:30:00Z'),
+    allDay: false,
+    color: '#111111',
+    editable: true,
+  }
+  const span = {
+    start: Date.parse('2026-11-17T13:00:00Z'),
+    end: Date.parse('2026-11-17T14:00:00Z'),
+  }
+  const answer = {
+    id: 'e1',
+    iCalUID: 'uid-1',
+    summary: 'Standup',
+    start: { dateTime: '2026-11-17T13:00:00Z' },
+    end: { dateTime: '2026-11-17T14:00:00Z' },
+  }
+
+  it('moves an event by patching only its times', async () => {
+    const { service, http } = createHarness({ secrets: connectedSecrets() })
+    http.on('PATCH', (url) => url.startsWith(`${API}/calendars/me%40example.com/events/e1?`), {
+      status: 200,
+      json: answer,
+    })
+
+    const moved = await service.moveEvent(event, span)
+
+    expect(moved).toMatchObject({
+      startsAt: span.start,
+      endsAt: span.end,
+      color: '#111111',
+      editable: true,
+    })
+    const request = http.requests().find((sent) => sent.method === 'PATCH')
+    expect(JSON.parse(request?.body ?? '')).toEqual({
+      start: { dateTime: '2026-11-17T13:00:00.000Z' },
+      end: { dateTime: '2026-11-17T14:00:00.000Z' },
+    })
+    expect(request?.url).not.toContain('sendUpdates')
+  })
+
+  it('creates an event on the primary calendar', async () => {
+    const { service, http } = createHarness({ secrets: connectedSecrets() })
+    http.on('POST', (url) => url.startsWith(`${API}/calendars/primary/events?`), {
+      status: 200,
+      json: { ...answer, id: 'new', iCalUID: 'uid-new', summary: 'Plan week' },
+    })
+
+    const created = await service.createEvent({ title: 'Plan week', span })
+
+    expect(created).toMatchObject({ title: 'Plan week', eventId: 'new', startsAt: span.start })
+    const request = http.requests().find((sent) => sent.method === 'POST')
+    expect(JSON.parse(request?.body ?? '')).toEqual({
+      summary: 'Plan week',
+      start: { dateTime: '2026-11-17T13:00:00.000Z' },
+      end: { dateTime: '2026-11-17T14:00:00.000Z' },
+    })
+  })
+
+  it('refuses to write through a read-only sign-in without calling Google', async () => {
+    const { service, http } = createHarness({
+      secrets: connectedSecrets({ scope: 'https://www.googleapis.com/auth/calendar.readonly' }),
+    })
+    await service.load()
+
+    expect(service.getState().canWrite).toBe(false)
+    await expect(service.moveEvent(event, span)).rejects.toThrow('read-only')
+    await expect(service.createEvent({ title: 'x', span })).rejects.toThrow('read-only')
+    expect(http.requests()).toEqual([])
   })
 })
 
@@ -284,7 +375,12 @@ describe('disconnect', () => {
 
     await service.disconnect()
 
-    expect(service.getState()).toEqual({ status: 'disconnected', email: null, hasClient: true })
+    expect(service.getState()).toEqual({
+      status: 'disconnected',
+      email: null,
+      hasClient: true,
+      canWrite: false,
+    })
     expect(Object.keys(keychain.snapshot())).toEqual([GOOGLE_CALENDAR_CLIENT_SECRET])
     const revoke = http.requests().find((request) => request.url === GOOGLE_REVOKE_URL)
     expect(new URLSearchParams(revoke?.body ?? '').get('token')).toBe('refresh-1')
@@ -296,6 +392,11 @@ describe('disconnect', () => {
     await service.forgetClient()
 
     expect(keychain.snapshot()).toEqual({})
-    expect(service.getState()).toEqual({ status: 'disconnected', email: null, hasClient: false })
+    expect(service.getState()).toEqual({
+      status: 'disconnected',
+      email: null,
+      hasClient: false,
+      canWrite: false,
+    })
   })
 })

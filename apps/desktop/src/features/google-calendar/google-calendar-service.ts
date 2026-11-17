@@ -12,7 +12,10 @@ import {
 import {
   calendarListSchema,
   EVENT_FIELDS,
+  EVENT_ITEM_FIELDS,
   eventListSchema,
+  eventSchema,
+  eventTimesBody,
   GOOGLE_CALENDAR_API,
   mergeCalendarEvents,
   toGoogleCalendarEvent,
@@ -31,6 +34,7 @@ import {
   GOOGLE_REVOKE_URL,
   GOOGLE_TOKEN_URL,
   googleOAuthClientSchema,
+  grantsEventWrites,
   loopbackRedirectUri,
   parseOAuthCallback,
   refreshBody,
@@ -57,6 +61,8 @@ const googleAuthSchema = z.object({
   expiresAt: z.number(),
   /** The signed-in account, for display. */
   email: z.string().nullable(),
+  /** The scopes Google granted, space-separated. */
+  scope: z.string().default(''),
 })
 
 type GoogleAuth = z.infer<typeof googleAuthSchema>
@@ -80,6 +86,19 @@ export interface GoogleCalendarState {
   readonly email: string | null
   /** Whether an OAuth client is stored, so connecting needs no typing. */
   readonly hasClient: boolean
+  /**
+   * Whether the sign-in may create and move events. False for a connection
+   * made before Reflect asked for that, or when it was unticked at consent.
+   */
+  readonly canWrite: boolean
+}
+
+/**
+ * A new timed event for the account's primary calendar.
+ */
+export interface NewGoogleEvent {
+  readonly title: string
+  readonly span: TimeSpan
 }
 
 /**
@@ -92,7 +111,8 @@ export interface KeychainPort {
 }
 
 /**
- * A read-only Google Calendar connection for the week planner. The user signs
+ * A Google Calendar connection for the week planner: it reads the account's
+ * events and can create and move them. The user signs
  * in with their own OAuth client; tokens live in the OS keychain, requests go
  * straight to Google, and events are fetched live and never stored.
  */
@@ -125,6 +145,17 @@ export interface GoogleCalendarService {
    * when not connected or the sign-in has lapsed.
    */
   listEvents(range: TimeSpan): Promise<GoogleCalendarEvent[]>
+  /**
+   * Move a timed event to `span` and resolve with the event as Google now
+   * has it. For one occurrence of a recurring event only that occurrence
+   * moves. Guests are not emailed. Rejects with an `auth` {@link AppError}
+   * when the sign-in may not change events.
+   */
+  moveEvent(event: GoogleCalendarEvent, span: TimeSpan): Promise<GoogleCalendarEvent>
+  /**
+   * Create a timed event on the account's primary calendar.
+   */
+  createEvent(event: NewGoogleEvent): Promise<GoogleCalendarEvent>
 }
 
 export interface GoogleCalendarServiceDeps {
@@ -140,7 +171,12 @@ export interface GoogleCalendarServiceDeps {
 class GoogleCalendarServiceImpl implements GoogleCalendarService {
   readonly #deps: GoogleCalendarServiceDeps
   readonly #listeners = new Set<() => void>()
-  #state: GoogleCalendarState = { status: 'loading', email: null, hasClient: false }
+  #state: GoogleCalendarState = {
+    status: 'loading',
+    email: null,
+    hasClient: false,
+    canWrite: false,
+  }
   #client: GoogleOAuthClient | null = null
   #auth: GoogleAuth | null = null
   #loading: Promise<void> | null = null
@@ -257,6 +293,49 @@ class GoogleCalendarServiceImpl implements GoogleCalendarService {
     return mergeCalendarEvents(perCalendar)
   }
 
+  async moveEvent(event: GoogleCalendarEvent, span: TimeSpan): Promise<GoogleCalendarEvent> {
+    const token = await this.#writeToken()
+    const calendar = encodeURIComponent(event.calendarId)
+    const updated = await this.#sendJson(
+      'PATCH',
+      `${GOOGLE_CALENDAR_API}/calendars/${calendar}/events/${encodeURIComponent(event.eventId)}?fields=${EVENT_ITEM_FIELDS}`,
+      token,
+      eventTimesBody(span),
+      eventSchema,
+    )
+    const moved = toGoogleCalendarEvent(updated, {
+      id: event.calendarId,
+      title: '',
+      color: event.color,
+      writable: true,
+    })
+    if (moved === null) {
+      throw new AppError('parse', 'Google Calendar sent back an event Reflect could not read.')
+    }
+    return moved
+  }
+
+  async createEvent(event: NewGoogleEvent): Promise<GoogleCalendarEvent> {
+    const token = await this.#writeToken()
+    const created = await this.#sendJson(
+      'POST',
+      `${GOOGLE_CALENDAR_API}/calendars/primary/events?fields=${EVENT_ITEM_FIELDS}`,
+      token,
+      { summary: event.title, ...eventTimesBody(event.span) },
+      eventSchema,
+    )
+    const mapped = toGoogleCalendarEvent(created, {
+      id: 'primary',
+      title: '',
+      color: null,
+      writable: true,
+    })
+    if (mapped === null) {
+      throw new AppError('parse', 'Google Calendar sent back an event Reflect could not read.')
+    }
+    return mapped
+  }
+
   async #readKeychain(): Promise<void> {
     const { keychain, logger } = this.#deps
     try {
@@ -319,6 +398,7 @@ class GoogleCalendarServiceImpl implements GoogleCalendarService {
       // Also proves the Calendar API is enabled for the user's project, so a
       // misconfigured client fails here with Google's own explanation.
       email: await this.#fetchEmail(tokens.access_token),
+      scope: tokens.scope ?? '',
     }
   }
 
@@ -369,6 +449,17 @@ class GoogleCalendarServiceImpl implements GoogleCalendarService {
       this.#refreshing = null
     })
     return await this.#refreshing
+  }
+
+  async #writeToken(): Promise<string> {
+    const token = await this.#accessToken()
+    if (!grantsEventWrites(this.#auth?.scope ?? '')) {
+      throw new AppError(
+        'auth',
+        'This Google sign-in is read-only. Disconnect and connect again to allow changes.',
+      )
+    }
+    return token
   }
 
   async #refresh(auth: GoogleAuth, client: GoogleOAuthClient): Promise<string> {
@@ -461,13 +552,42 @@ class GoogleCalendarServiceImpl implements GoogleCalendarService {
     return items.flatMap((item) => toGoogleCalendarEvent(item, calendar) ?? [])
   }
 
-  async #getJson<TOutput>(
+  #getJson<TOutput>(
     url: string,
     token: string,
     schema: ZodType<TOutput, unknown>,
   ): Promise<TOutput> {
+    return this.#request(url, token, { headers: { Accept: 'application/json' } }, schema)
+  }
+
+  #sendJson<TOutput>(
+    method: 'POST' | 'PATCH',
+    url: string,
+    token: string,
+    payload: unknown,
+    schema: ZodType<TOutput, unknown>,
+  ): Promise<TOutput> {
+    return this.#request(
+      url,
+      token,
+      {
+        method,
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      schema,
+    )
+  }
+
+  async #request<TOutput>(
+    url: string,
+    token: string,
+    init: { method?: string; headers: Record<string, string>; body?: string },
+    schema: ZodType<TOutput, unknown>,
+  ): Promise<TOutput> {
     const response = await this.#deps.http.fetch(url, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      ...init,
+      headers: { ...init.headers, Authorization: `Bearer ${token}` },
     })
     const body: unknown = safeParseJson(await response.text())
     if (response.ok) {
@@ -511,12 +631,14 @@ class GoogleCalendarServiceImpl implements GoogleCalendarService {
       status: change.status,
       email: this.#auth?.email ?? null,
       hasClient: this.#client !== null,
+      canWrite: grantsEventWrites(this.#auth?.scope ?? ''),
     }
     const current = this.#state
     if (
       current.status === next.status &&
       current.email === next.email &&
-      current.hasClient === next.hasClient
+      current.hasClient === next.hasClient &&
+      current.canWrite === next.canWrite
     ) {
       return
     }

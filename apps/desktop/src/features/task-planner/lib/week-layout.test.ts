@@ -3,9 +3,22 @@ import {
   formatMinutes,
   getWeekDays,
   layoutDayBlocks,
+  newEventRangeAtOffset,
   rangeAtOffset,
   resizeToOffset,
 } from './week-layout.ts'
+
+describe('newEventRangeAtOffset', () => {
+  it('starts an hour-long event on the half hour under the pointer', () => {
+    expect(newEventRangeAtOffset(9.4 * 48)).toEqual({ start: 9 * 60, end: 10 * 60 })
+    expect(newEventRangeAtOffset(9.6 * 48)).toEqual({ start: 9 * 60 + 30, end: 10 * 60 + 30 })
+  })
+
+  it('keeps the event inside the day', () => {
+    expect(newEventRangeAtOffset(-5)).toEqual({ start: 0, end: 60 })
+    expect(newEventRangeAtOffset(23.9 * 48)).toEqual({ start: 23 * 60, end: 24 * 60 })
+  })
+})
 
 describe('getWeekDays', () => {
   it('lists seven days across a month boundary', () => {

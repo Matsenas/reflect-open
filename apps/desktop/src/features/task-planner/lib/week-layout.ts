@@ -39,6 +39,21 @@ export function rangeAtOffset(offset: number, duration: number): TimeRange {
 }
 
 /**
+ * How long a new calendar event is until it is resized.
+ */
+const NEW_EVENT_MINUTES = 60
+
+/**
+ * The slot a new event takes when created at `offset` pixels from the top of
+ * a day column: the half hour the pointer is in, kept inside the day.
+ */
+export function newEventRangeAtOffset(offset: number): TimeRange {
+  const minutes = Math.max((offset / HOUR_HEIGHT) * 60, 0)
+  const start = Math.min(Math.floor(minutes / 30) * 30, MINUTES_PER_DAY - NEW_EVENT_MINUTES)
+  return { start, end: start + NEW_EVENT_MINUTES }
+}
+
+/**
  * The block `range` becomes when its bottom edge is dragged to `offset`
  * pixels: the end snaps, and never comes closer than one step to the start.
  */

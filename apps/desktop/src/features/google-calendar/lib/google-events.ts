@@ -18,6 +18,8 @@ export const calendarListSchema = z.object({
         selected: z.boolean().optional(),
         hidden: z.boolean().optional(),
         primary: z.boolean().optional(),
+        /** `owner` and `writer` may change events; `reader` and below may not. */
+        accessRole: z.string().optional(),
       }),
     )
     .default([]),
@@ -33,7 +35,7 @@ const eventTimeSchema = z.object({
   date: z.string().optional(),
 })
 
-const eventSchema = z.object({
+export const eventSchema = z.object({
   id: z.string(),
   iCalUID: z.string().optional(),
   status: z.string().optional(),
@@ -44,6 +46,8 @@ const eventSchema = z.object({
   attendees: z
     .array(z.object({ self: z.boolean().optional(), responseStatus: z.string().optional() }))
     .optional(),
+  organizer: z.object({ self: z.boolean().optional() }).optional(),
+  guestsCanModify: z.boolean().optional(),
 })
 
 export const eventListSchema = z.object({
@@ -54,11 +58,15 @@ export const eventListSchema = z.object({
 export type GoogleApiEvent = z.infer<typeof eventSchema>
 
 /**
- * The `fields` filter for an events request: only what {@link eventSchema}
- * reads, so descriptions, locations and attendee lists never leave Google.
+ * The `fields` filter for one event: only what {@link eventSchema} reads, so descriptions, locations and attendee lists never leave Google.
  */
-export const EVENT_FIELDS =
-  'nextPageToken,items(id,iCalUID,status,summary,eventType,start,end,attendees(self,responseStatus))'
+export const EVENT_ITEM_FIELDS =
+  'id,iCalUID,status,summary,eventType,start,end,attendees(self,responseStatus),organizer(self),guestsCanModify'
+
+/**
+ * The `fields` filter for a page of events.
+ */
+export const EVENT_FIELDS = `nextPageToken,items(${EVENT_ITEM_FIELDS})`
 
 /**
  * A span of time as epoch milliseconds, `start` inclusive.
@@ -76,6 +84,8 @@ export interface GoogleCalendar {
   readonly title: string
   /** `#rrggbb`, when Google reports one. */
   readonly color: string | null
+  /** Whether the account may change this calendar's events. */
+  readonly writable: boolean
 }
 
 /**
@@ -84,6 +94,9 @@ export interface GoogleCalendar {
 export interface GoogleCalendarEvent {
   /** Unique per occurrence across calendars. */
   readonly id: string
+  /** The calendar and event ids Google knows this occurrence by. */
+  readonly calendarId: string
+  readonly eventId: string
   readonly title: string
   /** Epoch milliseconds; an all-day event spans local midnights. */
   readonly startsAt: number
@@ -91,6 +104,11 @@ export interface GoogleCalendarEvent {
   readonly allDay: boolean
   /** The owning calendar's colour. */
   readonly color: string | null
+  /**
+   * Whether the account may move this event: it sits on a calendar the
+   * account can write to and is not someone else's invitation.
+   */
+  readonly editable: boolean
 }
 
 /**
@@ -105,6 +123,7 @@ export function visibleCalendars(entries: readonly CalendarListEntry[]): GoogleC
     id: entry.id,
     title: entry.summaryOverride ?? entry.summary ?? entry.id,
     color: entry.backgroundColor ?? null,
+    writable: entry.accessRole === 'owner' || entry.accessRole === 'writer',
   }))
 }
 
@@ -138,6 +157,19 @@ function isDeclined(event: GoogleApiEvent): boolean {
   })
 }
 
+/** Event kinds Google generates and does not let an app reschedule. */
+const FIXED_EVENT_TYPES = new Set(['birthday', 'fromGmail'])
+
+function isEditable(event: GoogleApiEvent, calendar: GoogleCalendar): boolean {
+  if (!calendar.writable || FIXED_EVENT_TYPES.has(event.eventType ?? '')) {
+    return false
+  }
+  // An invitation from someone else: only its organizer can move it, unless
+  // they let guests modify the event.
+  const isGuest = (event.attendees ?? []).some((attendee) => attendee.self === true)
+  return !isGuest || event.organizer?.self === true || event.guestsCanModify === true
+}
+
 /**
  * One API event as a planner event, or null when it is not worth showing:
  * cancelled, declined by the user, a working-location marker, or missing its
@@ -159,8 +191,11 @@ export function toGoogleCalendarEvent(
     // An invitation shows up on every calendar it was sent to; the iCal UID
     // is the same on each, so it collapses them in `mergeCalendarEvents`.
     id: `${event.iCalUID ?? `${calendar.id}:${event.id}`}:${interval.startsAt}`,
+    calendarId: calendar.id,
+    eventId: event.id,
     title: title === '' ? '(No title)' : title,
     color: calendar.color,
+    editable: isEditable(event, calendar),
     ...interval,
   }
 }
@@ -183,4 +218,26 @@ export function mergeCalendarEvents(
   return [...byId.values()].sort((left, right) => {
     return left.startsAt - right.startsAt || left.title.localeCompare(right.title)
   })
+}
+
+/**
+ * The local time `minutes` into the ISO day `date`, as epoch milliseconds.
+ */
+export function timeOnDay(date: string, minutes: number): number {
+  const time = new Date(`${date}T00:00:00`)
+  time.setMinutes(minutes)
+  return time.getTime()
+}
+
+/**
+ * The request body that gives a timed event the times of `span`.
+ */
+export function eventTimesBody(span: TimeSpan): {
+  start: { dateTime: string }
+  end: { dateTime: string }
+} {
+  return {
+    start: { dateTime: new Date(span.start).toISOString() },
+    end: { dateTime: new Date(span.end).toISOString() },
+  }
 }

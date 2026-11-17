@@ -3,7 +3,8 @@ import {
   buildAuthorizeUrl,
   codeExchangeBody,
   createPkcePair,
-  GOOGLE_CALENDAR_SCOPE,
+  GOOGLE_CALENDAR_SCOPES,
+  grantsEventWrites,
   loopbackRedirectUri,
   parseOAuthCallback,
 } from './google-oauth.ts'
@@ -19,7 +20,7 @@ describe('createPkcePair', () => {
 })
 
 describe('buildAuthorizeUrl', () => {
-  it('asks for read-only calendar access with offline refresh', () => {
+  it('asks to read calendars and edit events, with offline refresh', () => {
     const url = new URL(
       buildAuthorizeUrl({
         clientId: 'client.apps.googleusercontent.com',
@@ -33,13 +34,21 @@ describe('buildAuthorizeUrl', () => {
       client_id: 'client.apps.googleusercontent.com',
       redirect_uri: 'http://127.0.0.1:51234',
       response_type: 'code',
-      scope: GOOGLE_CALENDAR_SCOPE,
+      scope: GOOGLE_CALENDAR_SCOPES,
       code_challenge: 'challenge',
       code_challenge_method: 'S256',
       state: 'state-1',
       access_type: 'offline',
       prompt: 'consent',
     })
+  })
+})
+
+describe('grantsEventWrites', () => {
+  it('is true only when the events scope was granted', () => {
+    expect(grantsEventWrites(GOOGLE_CALENDAR_SCOPES)).toBe(true)
+    expect(grantsEventWrites('https://www.googleapis.com/auth/calendar.readonly')).toBe(false)
+    expect(grantsEventWrites('')).toBe(false)
   })
 })
 

@@ -8,9 +8,29 @@ import { z } from 'zod'
  */
 
 /**
- * Read-only access to calendars and their events: the only scope requested.
+ * Lets Reflect list the account's calendars and read their events.
  */
-export const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
+export const GOOGLE_CALENDAR_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
+
+/**
+ * Lets Reflect create events and change existing ones. It does not cover
+ * calendar settings, sharing, or deleting calendars.
+ */
+export const GOOGLE_CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+
+/**
+ * Everything a sign-in asks for, as the space-separated `scope` parameter.
+ */
+export const GOOGLE_CALENDAR_SCOPES = `${GOOGLE_CALENDAR_READ_SCOPE} ${GOOGLE_CALENDAR_EVENTS_SCOPE}`
+
+/**
+ * Whether a granted `scope` string (space-separated) allows changing events.
+ * A user can untick a permission on the consent page, so this is checked
+ * rather than assumed.
+ */
+export function grantsEventWrites(scope: string): boolean {
+  return scope.split(' ').includes(GOOGLE_CALENDAR_EVENTS_SCOPE)
+}
 
 export const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -90,7 +110,7 @@ export function buildAuthorizeUrl(options: AuthorizeUrlOptions): string {
     client_id: options.clientId,
     redirect_uri: options.redirectUri,
     response_type: 'code',
-    scope: GOOGLE_CALENDAR_SCOPE,
+    scope: GOOGLE_CALENDAR_SCOPES,
     code_challenge: options.challenge,
     code_challenge_method: 'S256',
     state: options.state,
@@ -137,6 +157,8 @@ export const tokenResponseSchema = z.object({
   access_token: z.string().optional(),
   refresh_token: z.string().optional(),
   expires_in: z.number().optional(),
+  /** The scopes actually granted, space-separated. */
+  scope: z.string().optional(),
   error: z.string().optional(),
   error_description: z.string().optional(),
 })
