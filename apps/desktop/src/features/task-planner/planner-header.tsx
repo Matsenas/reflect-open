@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatDate } from '@reflect/utils'
 import { Button } from '@/components/ui/button.tsx'
+import { GoogleCalendarButton } from '../google-calendar/google-calendar-button.tsx'
 import { TasksViewToggle } from './tasks-view-toggle.tsx'
 
 interface PlannerHeaderProps {
@@ -74,6 +75,7 @@ export function PlannerHeader({
       >
         <ChevronRight aria-hidden className="size-4" />
       </Button>
+      <GoogleCalendarButton />
       <TasksViewToggle />
     </header>
   )

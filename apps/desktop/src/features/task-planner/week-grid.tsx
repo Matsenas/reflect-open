@@ -1,8 +1,10 @@
 import { useLayoutEffect, useRef, type ReactElement } from 'react'
 import { formatDate } from '@reflect/utils'
 import { useCalendarChangeInvalidation } from '@/lib/use-calendar.ts'
+import { InlineAlert } from '@/components/inline-alert.tsx'
 import { cn } from '@/lib/utils.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { useGoogleEvents } from '../google-calendar/use-google-calendar.ts'
 import { AllDayCell } from './all-day-cell.tsx'
 import { DayColumn } from './day-column.tsx'
 import type { PlannerTask } from './lib/planner-task.ts'
@@ -50,6 +52,7 @@ export function WeekGrid({
 }: WeekGridProps): ReactElement {
   const { settings } = useSettings()
   useCalendarChangeInvalidation(settings.calendarEnabled)
+  const google = useGoogleEvents(days)
   const nowMinutes = useNowMinutes()
   const scrollerRef = useRef<HTMLDivElement>(null)
   const firstNowRef = useRef(nowMinutes)
@@ -60,6 +63,11 @@ export function WeekGrid({
   return (
     <div ref={scrollerRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <div className="sticky top-0 z-40 border-b border-border bg-surface">
+        {google.error === null ? null : (
+          <InlineAlert tone="warning" className="m-2">
+            Couldn’t load Google Calendar events. {google.error}
+          </InlineAlert>
+        )}
         <div className={GRID_COLUMNS}>
           <div />
           {days.map((date) => (
@@ -89,6 +97,7 @@ export function WeekGrid({
               items={(itemsByDate.get(date) ?? NO_ITEMS).filter(
                 (item) => item.schedule?.time === null,
               )}
+              googleEvents={google.events}
               colorOf={colorOf}
               isPreview={preview !== null && preview.date === date && preview.time === null}
               onToggle={onToggle}
@@ -117,6 +126,7 @@ export function WeekGrid({
             items={(itemsByDate.get(date) ?? NO_ITEMS).filter(
               (item) => item.schedule?.time !== null,
             )}
+            googleEvents={google.events}
             colorOf={colorOf}
             preview={preview !== null && preview.date === date ? preview.time : null}
             timeFormat={settings.timeFormat}
