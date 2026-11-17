@@ -17,9 +17,9 @@ const SettingsRoute = lazy(async () => {
   const { SettingsRoute } = await import('@/components/settings/settings-route.tsx')
   return { default: SettingsRoute }
 })
-const TasksScreen = lazy(async () => {
-  const { TasksScreen } = await import('@/components/tasks/tasks-screen.tsx')
-  return { default: TasksScreen }
+const TasksRoute = lazy(async () => {
+  const { TasksRoute } = await import('@/features/task-planner/tasks-route.tsx')
+  return { default: TasksRoute }
 })
 
 /**
@@ -50,7 +50,7 @@ function RouteContentBody(): ReactElement {
     case 'tasks':
       // Owns its scroll container (a grouped list with a fixed header), so no
       // ScrollRestored wrapper — same shape as All Notes.
-      return <TasksScreen />
+      return <TasksRoute />
     case 'search':
       return <SearchRoute query={route.query} />
     case 'chat':
