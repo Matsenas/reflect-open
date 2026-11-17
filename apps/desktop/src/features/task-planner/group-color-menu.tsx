@@ -2,6 +2,7 @@ import { useState, type ReactElement } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { ColorSwatches } from './color-swatches.tsx'
+import { GroupRing } from './group-ring.tsx'
 import type { PlannerColorId, PlannerGroup } from './lib/task-group.ts'
 
 interface GroupColorMenuProps {
@@ -11,8 +12,8 @@ interface GroupColorMenuProps {
 }
 
 /**
- * A group's colour dot. For a tag group it opens the palette, plus "Remove
- * group" when the group is stored; the inbox's dot is plain.
+ * A list's colour ring. For a tag list it opens the palette, plus "Remove
+ * list" when the list is stored; the inbox's tray is plain.
  */
 export function GroupColorMenu({
   group,
@@ -20,15 +21,15 @@ export function GroupColorMenu({
   onRemove,
 }: GroupColorMenuProps): ReactElement {
   const [open, setOpen] = useState(false)
-  const dot = <span aria-hidden className="size-2.5 rounded-full bg-(--group-color)" />
+  const dot = <GroupRing group={group} />
   if (group.tag === null) {
-    return <span className="flex size-5 flex-none items-center justify-center">{dot}</span>
+    return <span className="flex size-6 flex-none items-center justify-center">{dot}</span>
   }
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label={`Change colour of ${group.label}`}
-        className="flex size-5 flex-none items-center justify-center rounded-md outline-none hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex size-6 flex-none items-center justify-center rounded-md outline-none hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {dot}
       </PopoverTrigger>
@@ -45,14 +46,14 @@ export function GroupColorMenu({
             type="button"
             variant="ghost"
             size="xs"
-            title="Tasks keep their tag; the group shows again while any task has it"
+            title="Tasks keep their tag; the list shows again while any task has it"
             onClick={() => {
               onRemove()
               setOpen(false)
             }}
             className="justify-start text-text-muted"
           >
-            Remove group
+            Remove list
           </Button>
         ) : null}
       </PopoverContent>

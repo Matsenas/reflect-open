@@ -21,6 +21,7 @@ export function contextSidebarTarget(route: Route, today: string): ContextSideba
     case 'allNotes':
     case 'search':
     case 'tasks':
+    case 'planner':
     case 'chat':
     case 'settings':
     case 'graphs':

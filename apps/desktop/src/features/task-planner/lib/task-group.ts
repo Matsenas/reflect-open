@@ -92,6 +92,13 @@ export function getTaskGroupId(markdown: string): string {
 }
 
 /**
+ * The task's first `#tag` as written (without `#`), or null.
+ */
+export function getTaskGroupTag(markdown: string): string | null {
+  return findTag(markdown)?.tag ?? null
+}
+
+/**
  * The task's Markdown moved to another group: its first `#tag` replaced by
  * `tag`, appended when it had none, or removed for `null`.
  */

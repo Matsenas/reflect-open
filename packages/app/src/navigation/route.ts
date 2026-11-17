@@ -17,6 +17,8 @@ export type Route =
   | { kind: 'allNotes'; tag: string | null }
   | { kind: 'search'; query: string }
   | { kind: 'tasks' }
+  // The fork's week planner over the same tasks (FORK.md).
+  | { kind: 'planner' }
   | { kind: 'chat' }
   | { kind: 'settings' }
   // The graph-switcher screen — a mobile settings sub-screen; desktop renders
@@ -41,6 +43,7 @@ export function routesEqual(a: Route, b: Route): boolean {
   switch (a.kind) {
     case 'today':
     case 'tasks':
+    case 'planner':
     case 'chat':
     case 'settings':
     case 'graphs':

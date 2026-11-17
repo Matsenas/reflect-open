@@ -11,8 +11,8 @@ interface NewGroupPopoverProps {
 }
 
 /**
- * "New group": name a group and pick its colour. The name becomes the `#tag`
- * the group's tasks carry.
+ * The "+" after the list tabs: name a list and pick its colour. The name
+ * becomes the `#tag` the list's todos carry.
  */
 export function NewGroupPopover({ onCreate }: NewGroupPopoverProps): ReactElement {
   const [open, setOpen] = useState(false)
@@ -34,26 +34,33 @@ export function NewGroupPopover({ onCreate }: NewGroupPopoverProps): ReactElemen
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <Button type="button" variant="ghost" size="xs" className="text-text-muted">
-            <Plus aria-hidden className="size-3.5" />
-            New group
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="New list"
+            title="New list"
+            className="flex-none text-text-muted"
+          >
+            <Plus aria-hidden className="size-4" />
           </Button>
         }
       />
-      <PopoverContent align="start" side="top" className="w-60">
+      <PopoverContent align="start" className="w-60">
         <form onSubmit={submit} className="flex flex-col gap-2.5">
           <Input
             autoFocus
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Group name"
-            aria-label="Group name"
+            onKeyDown={(event) => event.stopPropagation()}
+            placeholder="List name"
+            aria-label="List name"
             aria-invalid={name.trim() !== '' && tag === null}
           />
           <ColorSwatches value={color} onChange={setColor} />
           <div className="flex items-center justify-between gap-2">
             <span className="min-w-0 truncate text-xs text-text-muted">
-              {tag === null ? 'Start with a letter' : `Tasks tagged #${tag}`}
+              {tag === null ? 'Start with a letter' : `Todos tagged #${tag}`}
             </span>
             <Button type="submit" size="xs" disabled={tag === null}>
               Create

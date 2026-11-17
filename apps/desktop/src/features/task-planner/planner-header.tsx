@@ -2,7 +2,6 @@ import type { ReactElement } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatDate } from '@reflect/utils'
 import { Button } from '@/components/ui/button.tsx'
-import { TasksViewToggle } from './tasks-view-toggle.tsx'
 
 interface PlannerHeaderProps {
   /**
@@ -27,8 +26,8 @@ function weekTitle(weekStart: string, weekEnd: string): string {
 }
 
 /**
- * The planner's toolbar: the shown week, week navigation, and the switch back
- * to the task list. Sized and padded like the Tasks list header it replaces.
+ * The planner's toolbar: the shown week and week navigation. Sized and padded
+ * like the Tasks list header.
  */
 export function PlannerHeader({
   weekStart,
@@ -74,7 +73,6 @@ export function PlannerHeader({
       >
         <ChevronRight aria-hidden className="size-4" />
       </Button>
-      <TasksViewToggle />
     </header>
   )
 }

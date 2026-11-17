@@ -36,7 +36,6 @@ import { TaskFiltersMenu } from './task-filters-menu.tsx'
 import { TaskGroupSection } from './task-group-section.tsx'
 import { TaskScheduleCalendar } from './task-schedule-calendar.tsx'
 import { TaskToolbarCountBadge } from './task-toolbar-count-badge.tsx'
-import { TasksViewToggle } from '@/features/task-planner/tasks-view-toggle.tsx'
 import { isModEvent } from '@meowdown/core'
 
 /**
@@ -310,7 +309,6 @@ export function TasksScreen(): ReactElement {
           open={filtersOpen}
           onOpenChange={setFiltersOpen}
         />
-        <TasksViewToggle />
       </header>
       <div ref={setScrollElement} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto pb-8">
         {isError ? (
