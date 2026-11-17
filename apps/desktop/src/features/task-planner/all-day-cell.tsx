@@ -2,9 +2,11 @@ import type { ReactElement } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { useDayEvents } from '@/lib/use-calendar.ts'
 import { cn } from '@/lib/utils.ts'
+import type { GoogleCalendarEvent } from '../google-calendar/lib/google-events.ts'
 import { dragId, type DropTarget } from './lib/planner-dnd.ts'
 import type { PlannerTask } from './lib/planner-task.ts'
 import type { PlannerColorId } from './lib/task-group.ts'
+import { rangeOnDay } from './lib/week-layout.ts'
 import { groupColorStyle, PLANNER_CARD_CLASS_NAME } from './planner-card-style.ts'
 import { PlannerTaskContent } from './planner-task-content.tsx'
 
@@ -50,6 +52,10 @@ interface AllDayCellProps {
    * The day's tasks that have a date but no time.
    */
   items: readonly PlannerTask[]
+  /**
+   * The shown week's Google Calendar events; the cell picks its own day's.
+   */
+  googleEvents: readonly GoogleCalendarEvent[]
   colorOf: (groupId: string) => PlannerColorId
   /**
    * Whether the task being dragged would land here.
@@ -61,12 +67,13 @@ interface AllDayCellProps {
 
 /**
  * A day's all-day lane: tasks due that day without a time, and the day's
- * all-day Apple Calendar events. Dropping a task here gives it just the date,
+ * all-day Apple and Google Calendar events. Dropping a task here gives it just the date,
  * which is exactly Reflect's own due date.
  */
 export function AllDayCell({
   date,
   items,
+  googleEvents,
   colorOf,
   isPreview,
   onToggle,
@@ -91,6 +98,23 @@ export function AllDayCell({
           {event.title}
         </div>
       ))}
+      {googleEvents
+        .filter((event) => {
+          return event.allDay && rangeOnDay(event.startsAt, event.endsAt, date) !== null
+        })
+        .map((event) => (
+          <div
+            key={event.id}
+            style={
+              event.color === null
+                ? undefined
+                : { borderLeftColor: event.color, borderLeftWidth: 3 }
+            }
+            className="truncate rounded-md border border-border-strong bg-surface-sunken px-1.5 text-xs leading-5 font-medium text-text-secondary"
+          >
+            {event.title}
+          </div>
+        ))}
       {items.map((item) => (
         <div key={item.key} style={groupColorStyle(colorOf(item.groupId))}>
           <AllDayChip item={item} onToggle={onToggle} onOpen={onOpen} />

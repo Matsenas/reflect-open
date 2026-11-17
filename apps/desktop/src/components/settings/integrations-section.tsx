@@ -4,6 +4,7 @@ import { InlineAlert } from '@/components/inline-alert.tsx'
 import { useAsyncAction } from '@/hooks/use-async-action.ts'
 import { useContactsState } from '@/hooks/use-contacts-state.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { GoogleCalendarField } from '@/features/google-calendar/google-calendar-field.tsx'
 import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 import { CalendarIntegrationField } from './calendar-integration-field.tsx'
 import { SettingsSection } from './section.tsx'
@@ -121,6 +122,7 @@ export function IntegrationsSection(): ReactElement | null {
         </div>
       ) : null}
       <CalendarIntegrationField />
+      <GoogleCalendarField />
     </SettingsSection>
   )
 }

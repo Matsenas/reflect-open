@@ -29,6 +29,7 @@ mod icloud;
 mod link_preview;
 mod logging;
 mod menu;
+mod oauth_loopback;
 mod quit;
 mod recents;
 mod secrets;
@@ -324,6 +325,9 @@ pub fn run() {
             secrets::secret_set,
             secrets::secret_get,
             secrets::secret_delete,
+            oauth_loopback::oauth_loopback_start,
+            oauth_loopback::oauth_loopback_wait,
+            oauth_loopback::oauth_loopback_cancel,
             db::index_open,
             db::index_apply,
             db::index_apply_batch,
